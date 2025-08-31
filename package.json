@@ -1,0 +1,61 @@
+{
+  "name": "super-mcp-router",
+  "version": "1.0.0",
+  "description": "A local MCP router that aggregates multiple MCPs into a single interface for Claude",
+  "private": false,
+  "type": "module",
+  "main": "dist/server.js",
+  "bin": {
+    "super-mcp-router": "dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "super-mcp-config.example.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts --config ./super-mcp-config.json",
+    "start": "node dist/cli.js --config ./super-mcp-config.json",
+    "test": "vitest run",
+    "clean": "rm -rf dist/",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "ai",
+    "router",
+    "aggregator",
+    "tools",
+    "productivity"
+  ],
+  "author": "Joshua Wöhle <joshua@mindstone.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-username/super-mcp-router.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/super-mcp-router/issues"
+  },
+  "homepage": "https://github.com/your-username/super-mcp-router#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@types/express": "^5.0.3",
+    "ajv": "^8.12.0",
+    "express": "^5.1.0",
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.0"
+  }
+}

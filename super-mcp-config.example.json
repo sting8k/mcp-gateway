@@ -1,0 +1,45 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/path/to/your/workspace"
+      ]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "YOUR_GITHUB_TOKEN"
+      }
+    },
+    "sqlite": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sqlite",
+        "--db-path",
+        "/path/to/your/database.db"
+      ]
+    },
+    "notion-api": {
+      "type": "sse",
+      "url": "https://mcp.notion.com/mcp",
+      "name": "Notion Integration",
+      "description": "Access and manage Notion workspaces",
+      "oauth": true,
+      "visibility": "default"
+    },
+    "custom-http-server": {
+      "url": "https://api.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_TOKEN",
+        "X-API-Version": "v1"
+      },
+      "name": "Custom API Server",
+      "description": "Custom HTTP MCP server with authentication"
+    }
+  }
+}
