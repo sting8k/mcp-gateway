@@ -4,13 +4,14 @@ A local MCP router that aggregates multiple MCPs into a single interface for Cla
 
 ## Overview
 
-Super MCP Router allows you to configure multiple MCP servers (both local stdio and hosted HTTP) and access them through a single unified interface with just 5 meta-tools:
+Super MCP Router allows you to configure multiple MCP servers (both local stdio and hosted HTTP) and access them through a single unified interface with these meta-tools:
 
-- `list_tool_packages` - List available MCP packages
-- `list_tools` - List tools in a specific package  
+- `list_tool_packages` - List available MCP packages and discover their capabilities
+- `list_tools` - List tools in a specific package with schemas and examples
 - `use_tool` - Execute a tool from any package
-- `begin_auth` - Start OAuth authentication for hosted MCPs
-- `auth_status` - Check authentication status
+- `get_help` - Get detailed guidance on using Super-MCP effectively
+- `authenticate` - Start OAuth authentication for packages that require it
+- `health_check_all` - Check the operational status of all configured packages
 
 ## Installation
 
@@ -189,7 +190,8 @@ npm run build
 - **OAuth Support**: Browser-based OAuth flow with persistent token storage
 - **Tool Discovery**: Automatic tool enumeration and caching
 - **Validation**: Schema validation for all tool arguments
-- **Error Handling**: Comprehensive error codes and messages
+- **Error Handling**: Comprehensive error codes and messages with contextual help
+- **Built-in Help System**: Interactive guidance with `get_help` tool
 - **Portable**: Everything contained within this directory
 
 ## Project Structure
@@ -224,6 +226,34 @@ src/
 - Device code flow (no local HTTP server required)
 
 ⚠️ **Important**: The `.gitignore` file excludes your config file, but double-check before committing!
+
+## Built-in Help System
+
+Super MCP includes comprehensive built-in help accessible through the `get_help` tool:
+
+### Help Topics
+- **getting_started**: Basic workflow and examples
+- **workflow**: Common usage patterns
+- **authentication**: OAuth and API key setup
+- **tool_discovery**: Finding and understanding available tools
+- **error_handling**: Troubleshooting error codes
+- **common_patterns**: Typical usage scenarios
+- **package_types**: Understanding different MCP types
+
+### Usage Examples
+```javascript
+// Get started with Super MCP
+get_help(topic: "getting_started")
+
+// Get help for a specific package
+get_help(package_id: "github")
+
+// Get help for an error code
+get_help(error_code: -32003)
+```
+
+### Enhanced Error Messages
+All errors now include contextual guidance pointing to relevant help resources and suggesting next steps.
 
 ## Development
 
