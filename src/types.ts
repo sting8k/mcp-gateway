@@ -7,8 +7,12 @@ export interface StandardServerConfig {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
-  // SSE/HTTP config
-  type?: "stdio" | "sse";
+  cwd?: string;
+  // Transport config:
+  // - "stdio": Local command execution
+  // - "sse": HTTP+SSE transport (deprecated in MCP spec 2025-03-26)
+  // - "http": Streamable HTTP transport (recommended)
+  type?: "stdio" | "sse" | "http";
   url?: string;
   headers?: Record<string, string>;
 }
@@ -33,9 +37,11 @@ export interface PackageConfig {
   name: string;
   description?: string;
   transport: "stdio" | "http";
+  transportType?: "sse" | "http"; // For HTTP transport: HTTP+SSE (deprecated) or Streamable HTTP
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  cwd?: string;
   base_url?: string;
   auth?: AuthConfig;
   extra_headers?: Record<string, string>;

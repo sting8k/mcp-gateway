@@ -35,6 +35,7 @@ export class StdioMcpClient implements McpClient {
       command: config.command || "echo",
       args: config.args || [],
       env,
+      cwd: config.cwd,
     });
   }
 
@@ -58,6 +59,7 @@ export class StdioMcpClient implements McpClient {
         command: this.config.command || "echo",
         args: this.config.args || [],
         env,
+        cwd: this.config.cwd,
       });
 
       // Connect the client to the transport

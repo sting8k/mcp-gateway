@@ -35,11 +35,22 @@ export class PackageRegistry {
         
         // Determine transport type
         let transport: "stdio" | "http" = "stdio";
+        let transportType: "sse" | "http" | undefined;
         let baseUrl: string | undefined;
         
-        if (extConfig.type === "sse" || extConfig.url) {
+        if (extConfig.type === "sse" || extConfig.type === "http" || extConfig.url) {
           transport = "http";
           baseUrl = extConfig.url;
+          
+          // Preserve the specific HTTP transport type from config
+          if (extConfig.type === "sse") {
+            // HTTP+SSE transport (deprecated as of MCP spec 2025-03-26)
+            transportType = "sse";
+          } else {
+            // Default to Streamable HTTP for "http" type or when type is omitted
+            // Streamable HTTP replaced HTTP+SSE as of MCP spec 2025-03-26
+            transportType = "http";
+          }
         }
         
         const pkg: PackageConfig = {
@@ -47,9 +58,11 @@ export class PackageRegistry {
           name: extConfig.name || id,
           description: extConfig.description,
           transport,
+          transportType,
           command: extConfig.command,
           args: extConfig.args,
           env: extConfig.env,
+          cwd: extConfig.cwd,
           base_url: baseUrl,
           auth: extConfig.auth,
           extra_headers: extConfig.headers,
@@ -261,7 +274,8 @@ export class PackageRegistry {
            error.name === "UnauthorizedError")) {
         logger.info("Package requires authentication", {
           package_id: packageId,
-          message: "Use authenticate tool to sign in",
+          message: `Use 'authenticate(package_id: "${packageId}")' to sign in`,
+          oauth_enabled: config.oauth === true,
         });
         // Return the unconnected client - it will report as needing auth
         // The HttpMcpClient's healthCheck will return "needs_auth"

@@ -252,9 +252,26 @@ export class HttpMcpClient implements McpClient {
         package_id: this.packageId,
       });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Provide more helpful error messages for common auth issues
+      if (errorMessage.includes("401") || errorMessage.includes("Unauthorized")) {
+        logger.error("Authentication required for MCP server", {
+          package_id: this.packageId,
+          message: `Run 'authenticate(package_id: "${this.packageId}")' to connect`,
+          oauth_configured: this.config.oauth === true,
+          has_saved_tokens: this.useOAuth,
+        });
+        const authError = new Error(
+          `Authentication required. Use 'authenticate(package_id: "${this.packageId}")' to sign in.`
+        );
+        authError.name = "UnauthorizedError";
+        throw authError;
+      }
+      
       logger.error("Failed to connect to MCP server", {
         package_id: this.packageId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       });
       throw error;
     }
@@ -264,11 +281,13 @@ export class HttpMcpClient implements McpClient {
     const url = new URL(this.config.base_url!);
     const options = this.getTransportOptions();
     
-    // Simple URL-based transport detection
-    if (url.pathname.endsWith('/sse')) {
-      logger.debug("Using SSE transport", { package_id: this.packageId });
+    // Use configured transport type, not URL-based detection
+    if (this.config.transportType === "sse") {
+      logger.debug("Using HTTP+SSE transport (deprecated)", { package_id: this.packageId });
       return new SSEClientTransport(url, options);
     } else {
+      // Default to Streamable HTTP (replaced HTTP+SSE as of MCP spec 2025-03-26)
+      // transportType is "http" or undefined
       logger.debug("Using Streamable HTTP transport", { package_id: this.packageId });
       return new StreamableHTTPClientTransport(url, options);
     }
