@@ -54,7 +54,7 @@ class Logger {
     this.setupProcessHandlers();
     
     // Print log location to console
-    console.log(`📝 Logging to: ${this.logFile}`);
+    console.error(`📝 Logging to: ${this.logFile}`);
   }
   
   private setupProcessHandlers() {

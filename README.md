@@ -1,6 +1,6 @@
 # Super MCP Router
 
-A local MCP router that aggregates multiple MCPs into a single interface for Claude. Designed to be run via npx or as a globally installed npm package - not as a standalone server.
+A local MCP router that aggregates multiple MCPs into a single interface for Claude. No installation required - just use npx!
 
 ## Overview
 
@@ -13,28 +13,7 @@ Super MCP Router allows you to configure multiple MCP servers (both local stdio 
 - `authenticate` - Start OAuth authentication for packages that require it
 - `health_check_all` - Check the operational status of all configured packages
 
-## Installation
-
-### Option 1: Use via npx (Simplest - No Installation Required)
-
-Simply use `npx super-mcp-router` in your Claude configuration. npx will automatically download and run the latest version.
-
-### Option 2: Install Globally
-
-```bash
-npm install -g super-mcp-router
-```
-
-### Option 3: Clone and Build from Source (For Development)
-
-```bash
-git clone https://github.com/JoshuaWohle/Super-MCP.git
-cd Super-MCP
-npm install
-npm run build
-```
-
-## Quick Start
+## Quick Start (No Installation Required!)
 
 ### 1. Configure Your MCPs
 
@@ -56,18 +35,14 @@ nano super-mcp-config.json
 ### 2. Test Your Configuration
 
 ```bash
-# If installed globally:
-super-mcp-router --config ~/.super-mcp/super-mcp-config.json
-
-# Or if cloned from source:
-npx tsx src/cli.ts --config ~/.super-mcp/super-mcp-config.json
+# Run directly with npx (no installation needed):
+npx -y super-mcp-router@latest --config ~/.super-mcp/super-mcp-config.json
 ```
 
 ### 3. Add to Claude
 
 Add to your Claude MCP settings:
 
-**Recommended: Using npx (no installation required):**
 ```json
 {
   "mcpServers": {
@@ -84,36 +59,7 @@ Add to your Claude MCP settings:
 }
 ```
 
-**If installed globally:**
-```json
-{
-  "mcpServers": {
-    "Super-MCP": {
-      "command": "super-mcp-router",
-      "args": [
-        "--config",
-        "/Users/YOUR_USERNAME/.super-mcp/super-mcp-config.json"
-      ]
-    }
-  }
-}
-```
-
-**If cloned from source (for development):**
-```json
-{
-  "mcpServers": {
-    "Super-MCP": {
-      "command": "node",
-      "args": [
-        "/absolute/path/to/Super-MCP/dist/cli.js",
-        "--config",
-        "/Users/YOUR_USERNAME/.super-mcp/super-mcp-config.json"
-      ]
-    }
-  }
-}
-```
+That's it! No installation needed - npx will automatically download and run the latest version.
 
 ## Configuration
 
@@ -170,16 +116,59 @@ Create a `super-mcp-config.json` file:
 - `description`: Description of the package's capabilities
 - `visibility`: "default" or "hidden" (controls display in tool lists)
 
-## Updating
+## Alternative Installation Methods
 
-**If using npx:** No update needed - npx always uses the latest version.
+While npx is the recommended way to use Super MCP Router (no installation, always up-to-date), you can also:
 
-**If installed globally:**
+### Install Globally
+
 ```bash
-npm update -g super-mcp-router
+npm install -g super-mcp-router
 ```
 
-**If cloned from source:**
+Then use in Claude config:
+```json
+{
+  "mcpServers": {
+    "Super-MCP": {
+      "command": "super-mcp-router",
+      "args": [
+        "--config",
+        "/Users/YOUR_USERNAME/.super-mcp/super-mcp-config.json"
+      ]
+    }
+  }
+}
+```
+
+To update: `npm update -g super-mcp-router`
+
+### Clone and Build from Source (For Development)
+
+```bash
+git clone https://github.com/JoshuaWohle/Super-MCP.git
+cd Super-MCP
+npm install
+npm run build
+```
+
+Then use in Claude config:
+```json
+{
+  "mcpServers": {
+    "Super-MCP": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/Super-MCP/dist/cli.js",
+        "--config",
+        "/Users/YOUR_USERNAME/.super-mcp/super-mcp-config.json"
+      ]
+    }
+  }
+}
+```
+
+To update:
 ```bash
 cd /path/to/Super-MCP
 git pull
