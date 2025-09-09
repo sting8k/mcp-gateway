@@ -80,34 +80,84 @@ export class PackageRegistry {
   }
 
   static async fromConfigFile(configPath: string): Promise<PackageRegistry> {
-    logger.info("Loading configuration", { config_path: configPath });
+    return PackageRegistry.fromConfigFiles([configPath]);
+  }
 
-    try {
-      const configData = await fs.readFile(configPath, "utf8");
-      const config: SuperMcpConfig = JSON.parse(configData);
+  static async fromConfigFiles(configPaths: string[]): Promise<PackageRegistry> {
+    logger.info("Loading configurations", { config_paths: configPaths });
 
-      const authManager = new AuthManagerImpl();
-      const registry = new PackageRegistry(config, authManager);
+    // Merged configuration
+    const mergedConfig: SuperMcpConfig = {
+      mcpServers: {}
+    };
 
-      // Validate normalized config
-      PackageRegistry.validateConfig(registry.packages);
+    // Load and merge all config files
+    for (const configPath of configPaths) {
+      try {
+        logger.info("Loading config file", { path: configPath });
+        const configData = await fs.readFile(configPath, "utf8");
+        const config: SuperMcpConfig = JSON.parse(configData);
 
-      // Check for placeholder values
-      PackageRegistry.checkForPlaceholders(registry.packages);
+        // Merge mcpServers
+        if (config.mcpServers) {
+          for (const [id, server] of Object.entries(config.mcpServers)) {
+            if (mergedConfig.mcpServers![id]) {
+              logger.warn("Duplicate server ID found, later config overrides", { 
+                id, 
+                config_file: configPath 
+              });
+            }
+            mergedConfig.mcpServers![id] = server;
+          }
+        }
 
-      logger.info("Configuration loaded successfully", {
-        package_count: registry.packages.length,
-        packages: registry.packages.map(p => ({ id: p.id, transport: p.transport })),
-      });
-
-      return registry;
-    } catch (error) {
-      logger.error("Failed to load configuration", {
-        config_path: configPath,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
+        // Handle legacy packages format
+        if (config.packages) {
+          logger.warn("Legacy 'packages' format detected, converting to mcpServers", {
+            config_file: configPath
+          });
+          for (const pkg of config.packages) {
+            mergedConfig.mcpServers![pkg.id] = {
+              command: pkg.command,
+              args: pkg.args,
+              env: pkg.env,
+              cwd: pkg.cwd,
+              type: pkg.transport === "http" ? (pkg.transportType || "http") : undefined,
+              url: pkg.base_url,
+              headers: pkg.extra_headers,
+              name: pkg.name,
+              description: pkg.description,
+              visibility: pkg.visibility,
+              oauth: pkg.oauth,
+              auth: pkg.auth
+            } as any;
+          }
+        }
+      } catch (error: any) {
+        logger.error("Failed to load config file", { 
+          path: configPath, 
+          error: error.message 
+        });
+        throw new Error(`Failed to load config file ${configPath}: ${error.message}`);
+      }
     }
+
+    const authManager = new AuthManagerImpl();
+    const registry = new PackageRegistry(mergedConfig, authManager);
+
+    // Validate normalized config
+    PackageRegistry.validateConfig(registry.packages);
+
+    // Check for placeholder values
+    PackageRegistry.checkForPlaceholders(registry.packages);
+
+    logger.info("Configurations loaded successfully", {
+      config_count: configPaths.length,
+      total_packages: registry.packages.length,
+      packages: registry.packages.map(p => ({ id: p.id, transport: p.transport })),
+    });
+
+    return registry;
   }
 
   private static validateConfig(packages: PackageConfig[]): void {

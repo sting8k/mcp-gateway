@@ -22,16 +22,20 @@ import { getLogger } from "./logging.js";
 const logger = getLogger();
 
 export async function startServer(options: {
-  configPath: string;
+  configPath?: string;
+  configPaths?: string[];
   logLevel?: string;
 }): Promise<void> {
-  const { configPath, logLevel = "info" } = options;
+  const { configPath, configPaths, logLevel = "info" } = options;
+  
+  // Handle both single and multiple config paths for backwards compatibility
+  const paths = configPaths || (configPath ? [configPath] : ["super-mcp-config.json"]);
 
   // Initialize logger
   logger.setLevel(logLevel as any);
   
   logger.info("Starting Super MCP Router", {
-    config_path: configPath,
+    config_paths: paths,
     log_level: logLevel,
   });
 
@@ -40,7 +44,7 @@ export async function startServer(options: {
     // OAuth is now handled by the MCP SDK directly
     
     // Load configuration and create registry
-    const registry = await PackageRegistry.fromConfigFile(configPath);
+    const registry = await PackageRegistry.fromConfigFiles(paths);
     const catalog = new Catalog(registry);
     const validator = getValidator();
     const authManager = registry.getAuthManager();

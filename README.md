@@ -116,6 +116,87 @@ Create a `super-mcp-config.json` file:
 - `description`: Description of the package's capabilities
 - `visibility`: "default" or "hidden" (controls display in tool lists)
 
+## Using Multiple Configuration Files
+
+You can split your MCP servers across multiple configuration files for better organization. This is useful for:
+- Separating personal and work MCPs
+- Grouping MCPs by functionality (e.g., dev tools, AI services, databases)
+- Sharing common configurations across projects
+- Managing team-wide vs personal tool configurations
+
+### Method 1: Multiple --config Arguments
+
+In your Claude configuration, you can specify multiple config files:
+
+```json
+{
+  "mcpServers": {
+    "Super-MCP": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "super-mcp-router@latest",
+        "--config",
+        "/Users/YOU/.super-mcp/personal-mcps.json",
+        "--config",
+        "/Users/YOU/.super-mcp/work-mcps.json",
+        "--config",
+        "/Users/YOU/.super-mcp/shared-mcps.json"
+      ]
+    }
+  }
+}
+```
+
+### Method 2: Environment Variable (Comma-Separated)
+
+Set the environment variable with comma-separated paths:
+
+```bash
+export SUPER_MCP_CONFIG="/path/to/personal.json,/path/to/work.json,/path/to/shared.json"
+```
+
+Then use Super MCP normally - it will automatically load all specified configs.
+
+### Example: Organizing by Function
+
+**dev-tools.json:**
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/YOU/dev"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+**ai-services.json:**
+```json
+{
+  "mcpServers": {
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": { "BRAVE_API_KEY": "YOUR_KEY" }
+    }
+  }
+}
+```
+
+### Important Notes
+
+- **Duplicate IDs**: If the same server ID appears in multiple configs, the last one loaded takes precedence (with a warning logged)
+- **Error Handling**: If any config file fails to load, the entire startup fails (fail-fast behavior)
+- **Backward Compatible**: Single config files work exactly as before - no changes needed to existing setups
+- **Legacy Format**: The old `packages` array format is still supported and automatically converted
+
 ## Alternative Installation Methods
 
 While npx is the recommended way to use Super MCP Router (no installation, always up-to-date), you can also:

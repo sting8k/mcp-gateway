@@ -5,6 +5,17 @@ All notable changes to Super MCP Router will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-09-09
+
+### Added
+- Support for multiple configuration files via multiple --config arguments
+- Support for comma-separated config paths in SUPER_MCP_CONFIG environment variable
+- Automatic merging of servers from multiple config files (duplicates handled gracefully)
+
+### Changed
+- Configuration loading now supports both single and multiple file inputs
+- Backward compatible - existing single config setups continue to work unchanged
+
 ## [1.0.4] - 2025-09-09
 
 ### Changed
