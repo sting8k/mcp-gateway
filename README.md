@@ -156,8 +156,12 @@ Create a `super-mcp-config.json` file:
 - `command`: Command to execute (for stdio servers)
 - `args`: Command arguments
 - `env`: Environment variables
-- `type`: Transport type ("stdio" or "sse")
-- `url`: Server URL (for HTTP/SSE servers)
+- `cwd`: Working directory for the server process
+- `type`: Transport type:
+  - `"stdio"`: Local command execution
+  - `"sse"`: HTTP+SSE transport (deprecated as of MCP spec 2025-03-26)
+  - `"http"`: Streamable HTTP transport (recommended for HTTP servers)
+- `url`: Server URL (for HTTP servers)
 - `headers`: HTTP headers for authentication
 
 **Extended fields (super-mcp specific):**
@@ -187,10 +191,12 @@ npm run build
 
 - **Single Interface**: Access all your MCPs through one connection
 - **Mixed Transports**: Combine stdio and HTTP MCPs seamlessly
+- **HTTP Transport Support**: Both HTTP+SSE (legacy) and Streamable HTTP (recommended)
 - **OAuth Support**: Browser-based OAuth flow with persistent token storage
 - **Tool Discovery**: Automatic tool enumeration and caching
 - **Validation**: Schema validation for all tool arguments
 - **Error Handling**: Comprehensive error codes and messages with contextual help
+- **Improved Authentication**: Clear error messages guiding users to authenticate when needed
 - **Built-in Help System**: Interactive guidance with `get_help` tool
 - **Portable**: Everything contained within this directory
 

@@ -1,6 +1,6 @@
 {
   "name": "super-mcp-router",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A local MCP router that aggregates multiple MCPs into a single interface for Claude",
   "private": false,
   "type": "module",
@@ -12,7 +12,8 @@
     "dist/",
     "super-mcp-config.example.json",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc",

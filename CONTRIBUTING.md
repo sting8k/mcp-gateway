@@ -37,10 +37,13 @@ src/
 ├── types.ts            # TypeScript definitions
 ├── auth/
 │   ├── manager.ts      # Token storage (keychain + file fallback)
-│   └── deviceCode.ts   # Device code OAuth flow
+│   ├── deviceCode.ts   # Device code OAuth flow
+│   ├── browserOAuthProvider.ts # Browser-based OAuth provider
+│   ├── callbackServer.ts # OAuth callback server
+│   └── globalOAuthLock.ts # OAuth flow coordination
 └── clients/
     ├── stdioClient.ts  # Stdio MCP client
-    └── httpClient.ts   # HTTP MCP client
+    └── httpClient.ts   # HTTP MCP client (supports SSE and Streamable HTTP)
 ```
 
 ## Making Changes
