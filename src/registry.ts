@@ -7,6 +7,82 @@ import { getLogger } from "./logging.js";
 
 const logger = getLogger();
 
+/**
+ * Expands environment variables in a configuration object.
+ * Supports ${VAR} syntax for environment variable substitution.
+ * Returns undefined if input is undefined to maintain compatibility.
+ */
+function expandEnvironmentVariables(env?: Record<string, string>, packageId?: string): Record<string, string> | undefined {
+  if (!env) return undefined;
+  
+  const expanded: Record<string, string> = {};
+  const warnings: string[] = [];
+  
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === 'string') {
+      // Support ${VAR} syntax for environment variable expansion
+      // Also support $VAR syntax for convenience
+      expanded[key] = value
+        .replace(/\$\{([^}]+)\}/g, (match, varName) => {
+          const envValue = process.env[varName];
+          if (envValue !== undefined) {
+            logger.debug("Expanded environment variable", {
+              package_id: packageId,
+              key,
+              var_name: varName,
+              original: match,
+              // Don't log the actual value for security
+              has_value: true
+            });
+            return envValue;
+          }
+          const warning = `${packageId ? `[${packageId}] ` : ''}Environment variable '${varName}' not found for key '${key}'`;
+          warnings.push(warning);
+          logger.warn("Environment variable not found", {
+            package_id: packageId,
+            key,
+            var_name: varName,
+            original: match,
+            suggestion: `Set the environment variable: export ${varName}="your-value"`
+          });
+          return match; // Keep original if not found
+        })
+        .replace(/\$([A-Z_][A-Z0-9_]*)/g, (match, varName) => {
+          const envValue = process.env[varName];
+          if (envValue !== undefined) {
+            logger.debug("Expanded environment variable", {
+              package_id: packageId,
+              key,
+              var_name: varName,
+              original: match,
+              has_value: true
+            });
+            return envValue;
+          }
+          // Don't warn for simple $VAR as it might be intentional
+          return match;
+        });
+        
+      // Check for common API key patterns that look invalid
+      if (expanded[key] && (key.includes('TOKEN') || key.includes('KEY') || key.includes('SECRET'))) {
+        if (expanded[key].startsWith('${') || expanded[key] === 'YOUR_TOKEN' || 
+            expanded[key] === 'YOUR_API_KEY' || expanded[key].includes('YOUR_')) {
+          warnings.push(`${packageId ? `[${packageId}] ` : ''}${key} appears to be unset or using a placeholder value`);
+        }
+      }
+    } else {
+      expanded[key] = value;
+    }
+  }
+  
+  // Store warnings for later use
+  if (warnings.length > 0 && packageId) {
+    (expanded as any).__warnings = warnings;
+  }
+  
+  return expanded;
+}
+
 export class PackageRegistry {
   private config: SuperMcpConfig;
   private packages: PackageConfig[];
@@ -21,9 +97,12 @@ export class PackageRegistry {
   }
 
   private normalizeConfig(config: SuperMcpConfig): PackageConfig[] {
-    // If using legacy packages format, use it directly
+    // If using legacy packages format, expand env vars and return
     if (config.packages) {
-      return config.packages;
+      return config.packages.map(pkg => ({
+        ...pkg,
+        env: expandEnvironmentVariables(pkg.env, pkg.id)
+      }));
     }
 
     // Convert standard mcpServers format to our internal format
@@ -61,7 +140,7 @@ export class PackageRegistry {
           transportType,
           command: extConfig.command,
           args: extConfig.args,
-          env: extConfig.env,
+          env: expandEnvironmentVariables(extConfig.env, id),
           cwd: extConfig.cwd,
           base_url: baseUrl,
           auth: extConfig.auth,
@@ -280,7 +359,10 @@ export class PackageRegistry {
     // Create new client
     const config = this.getPackage(packageId);
     if (!config) {
-      throw new Error(`Package not found: ${packageId}`);
+      const availablePackages = this.packages.map(p => p.id).join(", ");
+      const errorMsg = `Package '${packageId}' not found in configuration.\n`;
+      const helpMsg = `Available packages: ${availablePackages}\n\nTo use a package:\n  1. Ensure it's configured in super-mcp-config.json\n  2. Run 'list_tool_packages()' to see all available packages`;
+      throw new Error(errorMsg + helpMsg);
     }
 
     logger.debug("Creating new client", {
@@ -296,6 +378,31 @@ export class PackageRegistry {
       client = await clientPromise;
       this.clients.set(packageId, client);
       return client;
+    } catch (error) {
+      // Add helpful context to connection errors
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (!errorMessage.includes("MCP") && !errorMessage.includes("diagnostic")) {
+        // It's a raw error, enhance it
+        let enhancedMessage = `Failed to connect to MCP package '${packageId}'.\n`;
+        enhancedMessage += `Transport: ${config.transport}\n`;
+        
+        if (config.transport === "stdio") {
+          enhancedMessage += `Command: ${config.command} ${config.args?.join(" ") || ""}\n`;
+        } else if (config.transport === "http") {
+          enhancedMessage += `URL: ${config.base_url}\n`;
+        }
+        
+        enhancedMessage += `\nOriginal error: ${errorMessage}`;
+        enhancedMessage += `\n\nTroubleshooting:`;
+        enhancedMessage += `\n  1. Run 'health_check_all(detailed: true)' for diagnostics`;
+        enhancedMessage += `\n  2. Check the package configuration`;
+        enhancedMessage += `\n  3. Verify any required authentication`;
+        
+        const enhancedError = new Error(enhancedMessage);
+        (enhancedError as any).originalError = error;
+        throw enhancedError;
+      }
+      throw error;
     } finally {
       // Clean up the promise
       this.clientPromises.delete(packageId);

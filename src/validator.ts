@@ -1,4 +1,5 @@
 import Ajv from "ajv";
+import addFormats from "ajv-formats";
 import { ERROR_CODES } from "./types.js";
 import { getLogger } from "./logging.js";
 
@@ -21,10 +22,13 @@ export class Validator {
 
   constructor() {
     this.ajv = new Ajv({
-      strict: true,
+      strict: false,  // Changed to false to allow unknown formats
       allErrors: true,
       verbose: true,
     });
+    
+    // Add support for standard formats like date, date-time, email, etc.
+    addFormats(this.ajv);
   }
 
   validate(schema: any, data: any, context?: { package_id?: string; tool_id?: string }): void {
@@ -39,7 +43,21 @@ export class Validator {
       throw new ValidationError("Schema is required", []);
     }
 
-    const validate = this.ajv.compile(schema);
+    // Compile schema with better error handling for format issues
+    let validate;
+    try {
+      validate = this.ajv.compile(schema);
+    } catch (error) {
+      logger.warn("Schema compilation warning", {
+        package_id: context?.package_id,
+        tool_id: context?.tool_id,
+        error: error instanceof Error ? error.message : String(error),
+        hint: "This might be due to custom formats in the schema"
+      });
+      // Re-throw to maintain existing behavior
+      throw error;
+    }
+    
     const valid = validate(data);
 
     if (!valid) {

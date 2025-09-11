@@ -24,17 +24,11 @@ export class StdioMcpClient implements McpClient {
     );
     
     // Placeholder transport - will be replaced in connect()
-    const env: Record<string, string> = {};
-    for (const [key, value] of Object.entries({ ...process.env, ...config.env })) {
-      if (value !== undefined) {
-        env[key] = value;
-      }
-    }
-    
+    // Let the SDK handle environment variable merging with safe defaults
     this.transport = new StdioClientTransport({
       command: config.command || "echo",
       args: config.args || [],
-      env,
+      env: config.env,
       cwd: config.cwd,
     });
   }
@@ -48,17 +42,11 @@ export class StdioMcpClient implements McpClient {
 
     try {
       // Create the transport
-      const env: Record<string, string> = {};
-      for (const [key, value] of Object.entries({ ...process.env, ...this.config.env })) {
-        if (value !== undefined) {
-          env[key] = value;
-        }
-      }
-      
+      // Let the SDK handle environment variable merging with safe defaults
       this.transport = new StdioClientTransport({
         command: this.config.command || "echo",
         args: this.config.args || [],
-        env,
+        env: this.config.env,
         cwd: this.config.cwd,
       });
 
@@ -69,11 +57,59 @@ export class StdioMcpClient implements McpClient {
         package_id: this.packageId,
       });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("Failed to connect to stdio MCP", {
         package_id: this.packageId,
-        error: error instanceof Error ? error.message : String(error),
+        command: this.config.command,
+        args: this.config.args,
+        error: errorMessage,
       });
-      throw error;
+      
+      // Provide detailed diagnostic information
+      let diagnosticMessage = `Failed to connect to MCP server '${this.packageId}'.\n`;
+      
+      // Check common issues
+      if (errorMessage.includes("ENOENT") || errorMessage.includes("not found")) {
+        diagnosticMessage += `\n❌ Command not found: '${this.config.command}'`;
+        diagnosticMessage += `\nPossible fixes:`;
+        diagnosticMessage += `\n  1. Install the MCP server: npm install -g ${this.config.command}`;
+        diagnosticMessage += `\n  2. If using npx, ensure Node.js is installed`;
+        diagnosticMessage += `\n  3. Check if the command path is correct`;
+        if (this.config.command === "npx" && this.config.args?.[0]) {
+          diagnosticMessage += `\n  4. Try installing the package: npm install -g ${this.config.args[0]}`;
+        }
+      } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission")) {
+        diagnosticMessage += `\n❌ Permission denied for command: '${this.config.command}'`;
+        diagnosticMessage += `\nPossible fixes:`;
+        diagnosticMessage += `\n  1. Check file permissions: chmod +x ${this.config.command}`;
+        diagnosticMessage += `\n  2. Ensure you have execute permissions`;
+      } else if (errorMessage.includes("spawn")) {
+        diagnosticMessage += `\n❌ Failed to spawn process`;
+        diagnosticMessage += `\nCommand: ${this.config.command} ${this.config.args?.join(" ") || ""}`;
+        diagnosticMessage += `\nWorking directory: ${this.config.cwd || process.cwd()}`;
+      } else {
+        diagnosticMessage += `\n❌ ${errorMessage}`;
+      }
+      
+      // Check environment variables
+      if (this.config.env) {
+        const missingEnvVars = Object.entries(this.config.env)
+          .filter(([_, value]) => !value || value === "")
+          .map(([key]) => key);
+        
+        if (missingEnvVars.length > 0) {
+          diagnosticMessage += `\n\n⚠️ Empty environment variables detected:`;
+          missingEnvVars.forEach(key => {
+            diagnosticMessage += `\n  - ${key}: Not set or empty`;
+          });
+        }
+      }
+      
+      const enhancedError = new Error(diagnosticMessage);
+      enhancedError.name = "MCPConnectionError";
+      (enhancedError as any).originalError = error;
+      (enhancedError as any).packageId = this.packageId;
+      throw enhancedError;
     }
   }
 

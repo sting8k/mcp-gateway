@@ -168,6 +168,38 @@ class SimpleOAuthProvider implements OAuthClientProvider {
   async codeVerifier() {
     return this.codeVerifierValue || "dummy-verifier";
   }
+  
+  // Implement SDK's invalidateCredentials interface
+  async invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' = 'all') {
+    logger.info("Invalidating OAuth credentials", { 
+      package_id: this.packageId,
+      scope 
+    });
+    
+    if (scope === 'all' || scope === 'tokens') {
+      this.savedTokens = undefined;
+      try {
+        const tokenPath = path.join(this.tokenStoragePath, `${this.packageId}_tokens.json`);
+        await fs.unlink(tokenPath).catch(() => {});
+      } catch (error) {
+        // Ignore errors
+      }
+    }
+    
+    if (scope === 'all' || scope === 'client') {
+      this.savedClientInfo = undefined;
+      try {
+        const clientPath = path.join(this.tokenStoragePath, `${this.packageId}_client.json`);
+        await fs.unlink(clientPath).catch(() => {});
+      } catch (error) {
+        // Ignore errors
+      }
+    }
+    
+    if (scope === 'all' || scope === 'verifier') {
+      this.codeVerifierValue = undefined;
+    }
+  }
 }
 
 /**
@@ -253,6 +285,28 @@ export class HttpMcpClient implements McpClient {
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Handle Client ID mismatch - tokens are invalid
+      if (errorMessage.includes("Client ID mismatch")) {
+        logger.error("OAuth tokens are invalid (Client ID mismatch)", {
+          package_id: this.packageId,
+          message: "Clearing invalid tokens and requiring re-authentication",
+        });
+        
+        // Use SDK's invalidateCredentials method
+        if (this.oauthProvider) {
+          // Clear all credentials (tokens, client info, verifier)
+          await this.oauthProvider.invalidateCredentials('all');
+          logger.info("Invalidated OAuth credentials using SDK method", { package_id: this.packageId });
+        }
+        
+        const authError = new Error(
+          `OAuth tokens are invalid (Client ID mismatch). Tokens have been cleared.\n` +
+          `Please run 'authenticate(package_id: "${this.packageId}")' to sign in again.`
+        );
+        authError.name = "InvalidTokenError";
+        throw authError;
+      }
       
       // Provide more helpful error messages for common auth issues
       if (errorMessage.includes("401") || errorMessage.includes("Unauthorized")) {

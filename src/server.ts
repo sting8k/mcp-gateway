@@ -476,13 +476,41 @@ async function handleUseTool(
     validator.validate(schema, args, { package_id, tool_id });
   } catch (error) {
     if (error instanceof ValidationError) {
+      // Build a helpful error message
+      let helpMessage = `Argument validation failed for tool '${tool_id}' in package '${package_id}'.\n`;
+      helpMessage += `\n${error.message}\n`;
+      
+      // Add specific guidance based on validation errors
+      if (error.errors && error.errors.length > 0) {
+        helpMessage += `\nValidation errors:`;
+        error.errors.forEach((err: any) => {
+          const path = err.instancePath || "root";
+          helpMessage += `\n  • ${path}: ${err.message}`;
+          
+          // Add specific suggestions
+          if (err.keyword === "required") {
+            helpMessage += ` (missing: ${err.params?.missingProperty})`;
+          } else if (err.keyword === "type") {
+            helpMessage += ` (expected: ${err.params?.type}, got: ${typeof err.data})`;
+          } else if (err.keyword === "enum") {
+            helpMessage += ` (allowed values: ${err.params?.allowedValues?.join(", ")})`;
+          }
+        });
+      }
+      
+      helpMessage += `\n\nTo see the correct schema, run:`;
+      helpMessage += `\n  list_tools(package_id: "${package_id}", include_schemas: true)`;
+      helpMessage += `\n\nTo test your arguments without executing:`;
+      helpMessage += `\n  use_tool(package_id: "${package_id}", tool_id: "${tool_id}", args: {...}, dry_run: true)`;
+      
       throw {
         code: ERROR_CODES.ARG_VALIDATION_FAILED,
-        message: error.message,
+        message: helpMessage,
         data: {
           package_id,
           tool_id,
           errors: error.errors,
+          provided_args: args ? Object.keys(args) : [],
         },
       };
     }
@@ -536,14 +564,58 @@ async function handleUseTool(
     };
   } catch (error) {
     const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // Build helpful diagnostic message
+    let diagnosticMessage = `Tool execution failed in package '${package_id}', tool '${tool_id}'.\n`;
+    
+    // Add specific error context
+    if (errorMessage.includes("not found") || errorMessage.includes("undefined")) {
+      diagnosticMessage += `\n❌ Tool might not exist or package not properly connected`;
+      diagnosticMessage += `\nTroubleshooting:`;
+      diagnosticMessage += `\n  1. Run 'health_check_all()' to verify package status`;
+      diagnosticMessage += `\n  2. Run 'list_tools(package_id: "${package_id}")' to see available tools`;
+      diagnosticMessage += `\n  3. Check if the tool name is correct (case-sensitive)`;
+    } else if (errorMessage.includes("timeout")) {
+      diagnosticMessage += `\n❌ Tool execution timed out after ${duration}ms`;
+      diagnosticMessage += `\nThis might indicate:`;
+      diagnosticMessage += `\n  1. The operation is taking longer than expected`;
+      diagnosticMessage += `\n  2. The MCP server is not responding`;
+      diagnosticMessage += `\n  3. Network issues (for HTTP-based MCPs)`;
+    } else if (errorMessage.includes("permission") || errorMessage.includes("denied")) {
+      diagnosticMessage += `\n❌ Permission denied`;
+      diagnosticMessage += `\nPossible causes:`;
+      diagnosticMessage += `\n  1. Insufficient permissions for the requested operation`;
+      diagnosticMessage += `\n  2. API key/token lacks required scopes`;
+      diagnosticMessage += `\n  3. File system permissions (for filesystem MCPs)`;
+    } else if (errorMessage.includes("auth") || errorMessage.includes("401") || errorMessage.includes("403")) {
+      diagnosticMessage += `\n❌ Authentication/Authorization error`;
+      diagnosticMessage += `\nTroubleshooting:`;
+      diagnosticMessage += `\n  1. Check if API keys/tokens are valid`;
+      diagnosticMessage += `\n  2. Run 'authenticate(package_id: "${package_id}")' if OAuth-based`;
+      diagnosticMessage += `\n  3. Verify credentials have required permissions`;
+    } else {
+      diagnosticMessage += `\n❌ ${errorMessage}`;
+    }
+    
+    // Add execution context
+    diagnosticMessage += `\n\nExecution context:`;
+    diagnosticMessage += `\n  Package: ${package_id}`;
+    diagnosticMessage += `\n  Tool: ${tool_id}`;
+    diagnosticMessage += `\n  Duration: ${duration}ms`;
+    if (args && Object.keys(args).length > 0) {
+      diagnosticMessage += `\n  Arguments provided: ${Object.keys(args).join(", ")}`;
+    }
+    
     throw {
       code: ERROR_CODES.DOWNSTREAM_ERROR,
-      message: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
+      message: diagnosticMessage,
       data: {
         package_id,
         tool_id,
         duration_ms: duration,
-        original_error: error instanceof Error ? error.message : String(error),
+        original_error: errorMessage,
+        args_provided: args ? Object.keys(args) : [],
       },
     };
   }
@@ -668,6 +740,39 @@ async function handleHealthCheckAll(
           requires_auth: requiresAuth,
           is_authenticated: isAuthenticated,
         };
+        
+        // Add diagnostic information for problematic packages
+        if (health !== "ok") {
+          result.diagnostic = "Package is not healthy";
+          
+          if (health === "unavailable") {
+            result.suggested_actions = [];
+            if (pkg.transport === "stdio") {
+              result.suggested_actions.push(`Check if '${pkg.command}' is installed`);
+              if (pkg.command === "npx" && pkg.args?.[0]) {
+                result.suggested_actions.push(`Try: npm install -g ${pkg.args[0]}`);
+              }
+            } else if (pkg.transport === "http") {
+              result.suggested_actions.push(`Check network connectivity to ${pkg.base_url}`);
+              if (requiresAuth && !isAuthenticated) {
+                result.suggested_actions.push(`Run: authenticate(package_id: "${pkg.id}")`);
+              }
+            }
+          }
+        }
+        
+        // Check for environment variable issues
+        if (pkg.env) {
+          const envIssues: string[] = [];
+          for (const [key, value] of Object.entries(pkg.env)) {
+            if (!value || value === "" || value.includes("YOUR_") || value.startsWith("${")) {
+              envIssues.push(`${key} appears unset or invalid`);
+            }
+          }
+          if (envIssues.length > 0) {
+            result.env_issues = envIssues;
+          }
+        }
 
         if (detailed) {
           result.description = pkg.description;
@@ -675,17 +780,35 @@ async function handleHealthCheckAll(
           if (pkg.transport === "http") {
             result.base_url = pkg.base_url;
           }
+          if (pkg.transport === "stdio") {
+            result.command = pkg.command;
+            result.args = pkg.args;
+          }
         }
 
         return result;
       } catch (error) {
-        return {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const diagnostic: any = {
           package_id: pkg.id,
           name: pkg.name,
           transport: pkg.transport,
           status: "error",
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage,
+          diagnostic: "Failed to check package health",
+          suggested_actions: []
         };
+        
+        // Add specific suggestions based on error
+        if (errorMessage.includes("ENOENT") || errorMessage.includes("not found")) {
+          diagnostic.suggested_actions.push(`Install the MCP server: ${pkg.command}`);
+        } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission")) {
+          diagnostic.suggested_actions.push(`Check file permissions for: ${pkg.command}`);
+        } else if (errorMessage.includes("auth")) {
+          diagnostic.suggested_actions.push(`Check authentication credentials`);
+        }
+        
+        return diagnostic;
       }
     })
   );
@@ -694,15 +817,33 @@ async function handleHealthCheckAll(
     total: results.length,
     healthy: results.filter((r) => r.status === "ok").length,
     errored: results.filter((r) => r.status === "error").length,
+    unavailable: results.filter((r) => r.status === "unavailable").length,
     requiring_auth: results.filter((r) => r.requires_auth).length,
     authenticated: results.filter((r) => r.is_authenticated).length,
+    with_env_issues: results.filter((r) => r.env_issues && r.env_issues.length > 0).length,
   };
+  
+  // Add overall recommendations
+  const recommendations: string[] = [];
+  if (summary.errored > 0) {
+    recommendations.push("Some packages have errors - check the 'suggested_actions' for each");
+  }
+  if (summary.unavailable > 0) {
+    recommendations.push("Some packages are unavailable - they may need installation or authentication");
+  }
+  if (summary.with_env_issues > 0) {
+    recommendations.push("Some packages have environment variable issues - check 'env_issues' for details");
+  }
 
   return {
     content: [
       {
         type: "text",
-        text: JSON.stringify({ summary, packages: results }, null, 2),
+        text: JSON.stringify({ 
+          summary, 
+          recommendations: recommendations.length > 0 ? recommendations : undefined,
+          packages: results 
+        }, null, 2),
       },
     ],
     isError: false,
