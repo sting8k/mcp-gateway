@@ -15,51 +15,46 @@ Super MCP Router allows you to configure multiple MCP servers (both local stdio 
 
 ## Quick Start (No Installation Required!)
 
-### 1. Configure Your MCPs
+### 1. Add to Claude Desktop
 
-```bash
-# Create a configuration directory (e.g., in your home folder)
-mkdir -p ~/.super-mcp
-cd ~/.super-mcp
+Add this to your Claude Desktop MCP settings:
 
-# Download the example configuration
-curl -O https://raw.githubusercontent.com/JoshuaWohle/Super-MCP/main/super-mcp-config.example.json
-
-# Copy to your config file
-cp super-mcp-config.example.json super-mcp-config.json
-
-# Edit with your MCP packages and credentials
-nano super-mcp-config.json
-```
-
-### 2. Test Your Configuration
-
-```bash
-# Run directly with npx (no installation needed):
-npx -y super-mcp-router@latest --config ~/.super-mcp/super-mcp-config.json
-```
-
-### 3. Add to Claude
-
-Add to your Claude MCP settings:
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`  
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
-    "Super-MCP": {
+    "super-mcp": {
       "command": "npx",
-      "args": [
-        "-y",
-        "super-mcp-router@latest",
-        "--config",
-        "/Users/YOUR_USERNAME/.super-mcp/super-mcp-config.json"
-      ]
+      "args": ["-y", "super-mcp-router@latest"]
     }
   }
 }
 ```
 
-That's it! No installation needed - npx will automatically download and run the latest version.
+### 2. Restart Claude Desktop
+
+That's it! Super MCP Router will automatically:
+- Create `~/.super-mcp/` directory
+- Create an empty config file
+- Start working immediately (even with no MCPs configured)
+
+### 3. Add MCP Servers (Optional)
+
+Use the simple CLI to add MCP servers:
+
+```bash
+# Add common MCP servers
+npx super-mcp-router add filesystem
+npx super-mcp-router add github
+npx super-mcp-router add memory
+
+# See available servers
+npx super-mcp-router add --help
+```
+
+Or manually edit `~/.super-mcp/config.json` to add custom MCPs.
 
 ## Configuration
 
@@ -101,7 +96,7 @@ Create a `super-mcp-config.json` file:
 **Standard MCP fields:**
 - `command`: Command to execute (for stdio servers)
 - `args`: Command arguments
-- `env`: Environment variables
+- `env`: Environment variables (supports variable expansion - see below)
 - `cwd`: Working directory for the server process
 - `type`: Transport type:
   - `"stdio"`: Local command execution
@@ -115,6 +110,60 @@ Create a `super-mcp-config.json` file:
 - `name`: Human-readable name for the package
 - `description`: Description of the package's capabilities
 - `visibility`: "default" or "hidden" (controls display in tool lists)
+
+### Environment Variable Expansion
+
+Super MCP Router supports environment variable expansion in the `env` field using `${VAR}` or `$VAR` syntax:
+
+```json
+{
+  "github": {
+    "command": "npx",
+    "args": ["@modelcontextprotocol/server-github"],
+    "env": {
+      "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+    }
+  }
+}
+```
+
+This allows you to:
+- Keep sensitive tokens out of configuration files
+- Share configurations without exposing credentials
+- Use different values across environments
+
+**Security Note**: Only explicitly configured environment variables are passed to MCP servers. This prevents leaking system environment variables to individual servers.
+
+## CLI Commands
+
+Super MCP Router includes a simple CLI for managing MCP servers:
+
+### Adding MCP Servers
+
+```bash
+# Add pre-configured MCP servers
+npx super-mcp-router add filesystem  # Adds filesystem access
+npx super-mcp-router add github      # Adds GitHub integration 
+npx super-mcp-router add memory      # Adds persistent memory
+
+# See available servers
+npx super-mcp-router add --help
+```
+
+The `add` command:
+- Adds servers to `~/.super-mcp/config.json`
+- Uses sensible defaults (e.g., `~/Documents` for filesystem)
+- Reminds you about required environment variables
+
+### Default Config Location
+
+If no `--config` is specified, Super MCP Router uses:
+- `~/.super-mcp/config.json` (auto-created if missing)
+
+You can still use custom locations:
+```bash
+npx super-mcp-router --config /custom/path/config.json
+```
 
 ## Using Multiple Configuration Files
 

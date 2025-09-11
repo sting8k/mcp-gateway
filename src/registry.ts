@@ -244,8 +244,10 @@ export class PackageRegistry {
       throw new Error("Invalid configuration: packages must be an array");
     }
 
+    // Allow empty configs - super-mcp can run without any MCPs configured
     if (packages.length === 0) {
-      throw new Error("Invalid configuration: at least one server must be configured");
+      logger.info("No MCP servers configured - super-mcp running in minimal mode");
+      return;
     }
 
     const seenIds = new Set<string>();
