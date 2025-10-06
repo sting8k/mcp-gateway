@@ -19,7 +19,7 @@ export class StdioMcpClient implements McpClient {
     
     // We'll initialize the client and transport in connect()
     this.client = new Client(
-      { name: "super-mcp-router", version: "0.1.0" },
+      { name: "mcp-gateway", version: "0.1.0" },
       { capabilities: {} }
     );
     

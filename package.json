@@ -1,12 +1,11 @@
 {
-  "name": "super-mcp-router",
+  "name": "mcp-gateway",
   "version": "1.3.0",
   "description": "A local MCP router that aggregates multiple MCPs into a single interface for Claude",
   "private": false,
   "type": "module",
   "main": "dist/server.js",
   "bin": {
-    "super-mcp-router": "dist/cli.js",
     "mcp-gateway": "dist/cli.js"
   },
   "files": [
@@ -18,13 +17,13 @@
   ],
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/cli.ts --config ./super-mcp-config.json",
-    "start": "node dist/cli.js --config ./super-mcp-config.json",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
     "test": "vitest run",
     "clean": "rm -rf dist/",
     "prepublishOnly": "npm run clean && npm run build",
     "prepare": "npm run build",
-    "remote:router": "npx github:sting8k/mcp-gateway --config ./super-mcp-config.json"
+    "remote:router": "npx github:sting8k/mcp-gateway"
   },
   "keywords": [
     "mcp",

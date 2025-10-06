@@ -101,7 +101,8 @@ export class PackageRegistry {
     if (config.packages) {
       return config.packages.map(pkg => ({
         ...pkg,
-        env: expandEnvironmentVariables(pkg.env, pkg.id)
+        env: expandEnvironmentVariables(pkg.env, pkg.id),
+        disabled: pkg.disabled === true,
       }));
     }
 
@@ -146,7 +147,8 @@ export class PackageRegistry {
           auth: extConfig.auth,
           extra_headers: extConfig.headers,
           visibility: extConfig.visibility || "default",
-          oauth: extConfig.oauth
+          oauth: extConfig.oauth,
+          disabled: extConfig.disabled === true,
         };
         
         packages.push(pkg);
@@ -208,7 +210,8 @@ export class PackageRegistry {
               description: pkg.description,
               visibility: pkg.visibility,
               oauth: pkg.oauth,
-              auth: pkg.auth
+              auth: pkg.auth,
+              disabled: pkg.disabled,
             } as any;
           }
         }
@@ -244,9 +247,9 @@ export class PackageRegistry {
       throw new Error("Invalid configuration: packages must be an array");
     }
 
-    // Allow empty configs - super-mcp can run without any MCPs configured
+    // Allow empty configs - MCP Gateway can run without any MCPs configured
     if (packages.length === 0) {
-      logger.info("No MCP servers configured - super-mcp running in minimal mode");
+      logger.info("No MCP servers configured - MCP Gateway running in minimal mode");
       return;
     }
 
@@ -266,8 +269,14 @@ export class PackageRegistry {
         throw new Error(`Invalid package ${pkg.id}: name is required and must be a string`);
       }
 
+      const isDisabled = pkg.disabled === true;
+
       if (pkg.transport !== "stdio" && pkg.transport !== "http") {
         throw new Error(`Invalid package ${pkg.id}: transport must be "stdio" or "http"`);
+      }
+
+      if (isDisabled) {
+        continue;
       }
 
       if (pkg.transport === "stdio") {
@@ -298,6 +307,9 @@ export class PackageRegistry {
     const placeholders = ["YOUR_CLIENT_ID", "YOUR_SECRET", "YOUR_TOKEN"];
     
     for (const pkg of packages) {
+      if (pkg.disabled) {
+        continue;
+      }
       const configStr = JSON.stringify(pkg);
       for (const placeholder of placeholders) {
         if (configStr.includes(placeholder)) {
@@ -311,10 +323,12 @@ export class PackageRegistry {
     }
   }
 
-  getPackages(options: { safe_only?: boolean } = {}): PackageConfig[] {
-    let packages = [...this.packages];
+  getPackages(options: { safe_only?: boolean; include_disabled?: boolean } = {}): PackageConfig[] {
+    const { safe_only = false, include_disabled = false } = options;
 
-    if (options.safe_only) {
+    let packages = include_disabled ? [...this.packages] : this.packages.filter(pkg => !pkg.disabled);
+
+    if (safe_only) {
       // Filter out packages that might be unsafe or have placeholder values
       packages = packages.filter(pkg => {
         const configStr = JSON.stringify(pkg);
@@ -327,11 +341,23 @@ export class PackageRegistry {
     return packages;
   }
 
-  getPackage(packageId: string): PackageConfig | undefined {
-    return this.packages.find(pkg => pkg.id === packageId);
+  getPackage(packageId: string, options: { include_disabled?: boolean } = {}): PackageConfig | undefined {
+    const pkg = this.packages.find(pkg => pkg.id === packageId);
+    if (!pkg) {
+      return undefined;
+    }
+    if (pkg.disabled && !options.include_disabled) {
+      return undefined;
+    }
+    return pkg;
   }
 
   async getClient(packageId: string): Promise<McpClient> {
+    const rawConfig = this.getPackage(packageId, { include_disabled: true });
+    if (rawConfig?.disabled) {
+      throw new Error(`Package '${packageId}' is disabled in the MCP Gateway configuration.`);
+    }
+
     // Check if we already have a connected client
     let client = this.clients.get(packageId);
     if (client) {
@@ -363,7 +389,7 @@ export class PackageRegistry {
     if (!config) {
       const availablePackages = this.packages.map(p => p.id).join(", ");
       const errorMsg = `Package '${packageId}' not found in configuration.\n`;
-      const helpMsg = `Available packages: ${availablePackages}\n\nTo use a package:\n  1. Ensure it's configured in super-mcp-config.json\n  2. Run 'list_tool_packages()' to see all available packages`;
+      const helpMsg = `Available packages: ${availablePackages}\n\nTo use a package:\n  1. Ensure it's configured in your MCP Gateway config (e.g., ~/.mcp-gateway/config.json)\n  2. Run 'list_tool_packages()' to see all available packages`;
       throw new Error(errorMsg + helpMsg);
     }
 
@@ -472,6 +498,11 @@ export class PackageRegistry {
   }
 
   async healthCheck(packageId: string): Promise<"ok" | "error" | "unavailable"> {
+    const pkg = this.getPackage(packageId, { include_disabled: true });
+    if (pkg?.disabled) {
+      return "unavailable";
+    }
+
     try {
       const client = await this.getClient(packageId);
       if ("healthCheck" in client && typeof client.healthCheck === "function") {
@@ -493,9 +524,13 @@ export class PackageRegistry {
   }
   
   async reconnectWithAuth(packageId: string): Promise<void> {
-    const config = this.getPackage(packageId);
+    const config = this.getPackage(packageId, { include_disabled: true });
     if (!config) {
       throw new Error(`Package not found: ${packageId}`);
+    }
+
+    if (config.disabled) {
+      throw new Error(`Package '${packageId}' is disabled in the MCP Gateway configuration.`);
     }
     
     if (config.transport === "stdio") {
@@ -524,9 +559,13 @@ export class PackageRegistry {
   }
   
   async triggerAuthentication(packageId: string): Promise<void> {
-    const config = this.getPackage(packageId);
+    const config = this.getPackage(packageId, { include_disabled: true });
     if (!config) {
       throw new Error(`Package not found: ${packageId}`);
+    }
+
+    if (config.disabled) {
+      throw new Error(`Package '${packageId}' is disabled in the MCP Gateway configuration.`);
     }
     
     if (config.transport === "stdio") {

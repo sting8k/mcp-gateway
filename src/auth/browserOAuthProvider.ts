@@ -9,6 +9,7 @@ import type {
 import { spawn } from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { existsSync, mkdirSync } from "fs";
 import { getLogger } from "../logging.js";
 import { GlobalOAuthLock } from "./globalOAuthLock.js";
 import express from "express";
@@ -33,6 +34,7 @@ export class BrowserOAuthProvider implements OAuthClientProvider {
   private _clientMetadata: OAuthClientMetadata;
   private _redirectUrl: string;
   private tokenStoragePath: string;
+  private legacyTokenStoragePath?: string;
   private codeVerifierStorage = new Map<string, string>();
   private clientInfoStorage = new Map<string, OAuthClientInformationFull>();
   private redirectPort: number;
@@ -58,12 +60,20 @@ export class BrowserOAuthProvider implements OAuthClientProvider {
     this.openBrowser = options.openBrowser !== false;
     
     // Default token storage path
-    this.tokenStoragePath = options.tokenStoragePath || 
-      path.join(process.env.HOME || "", ".super-mcp", "oauth-tokens");
+    const baseDir = process.env.HOME || "";
+    const legacyDir = path.join(baseDir, ".super-mcp", "oauth-tokens");
+    const gatewayDir = path.join(baseDir, ".mcp-gateway", "oauth-tokens");
+    if (!existsSync(gatewayDir)) {
+      mkdirSync(gatewayDir, { recursive: true });
+    }
+    this.tokenStoragePath = options.tokenStoragePath || gatewayDir;
+    if (existsSync(legacyDir)) {
+      this.legacyTokenStoragePath = legacyDir;
+    }
 
     // Default client metadata for dynamic registration
     this._clientMetadata = options.clientMetadata || {
-      client_name: `Super MCP Router - ${this.packageId}`,
+      client_name: `MCP Gateway - ${this.packageId}`,
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       redirect_uris: [this._redirectUrl],
@@ -100,8 +110,8 @@ export class BrowserOAuthProvider implements OAuthClientProvider {
     
     // Also persist to disk
     try {
-      await fs.mkdir(path.dirname(this.tokenStoragePath), { recursive: true });
-      const filePath = path.join(path.dirname(this.tokenStoragePath), `${this.packageId}_client.json`);
+      await fs.mkdir(this.tokenStoragePath, { recursive: true });
+      const filePath = path.join(this.tokenStoragePath, `${this.packageId}_client.json`);
       await fs.writeFile(filePath, JSON.stringify(clientInformation, null, 2));
     } catch (error) {
       logger.warn("Failed to persist client information", {
@@ -112,8 +122,9 @@ export class BrowserOAuthProvider implements OAuthClientProvider {
   }
 
   async tokens(): Promise<OAuthTokens | undefined> {
+    const fileName = `${this.packageId}.json`;
     try {
-      const filePath = path.join(this.tokenStoragePath, `${this.packageId}.json`);
+      const filePath = path.join(this.tokenStoragePath, fileName);
       const data = await fs.readFile(filePath, "utf-8");
       const stored = JSON.parse(data) as any;
       
@@ -132,7 +143,29 @@ export class BrowserOAuthProvider implements OAuthClientProvider {
         scope: stored.scope,
       };
     } catch (error) {
-      // No saved tokens
+      if (this.legacyTokenStoragePath) {
+        try {
+          const legacyPath = path.join(this.legacyTokenStoragePath, fileName);
+          const data = await fs.readFile(legacyPath, "utf-8");
+          await fs.mkdir(this.tokenStoragePath, { recursive: true });
+          await fs.writeFile(path.join(this.tokenStoragePath, fileName), data);
+          logger.debug("Migrated OAuth tokens from legacy storage", { package_id: this.packageId });
+          const stored = JSON.parse(data) as any;
+          if (stored.expires_at && new Date(stored.expires_at) < new Date()) {
+            logger.debug("OAuth tokens expired", { package_id: this.packageId });
+            return undefined;
+          }
+          return {
+            access_token: stored.access_token,
+            token_type: stored.token_type,
+            expires_in: stored.expires_in,
+            refresh_token: stored.refresh_token,
+            scope: stored.scope,
+          };
+        } catch {
+          // No saved tokens
+        }
+      }
       return undefined;
     }
   }
@@ -282,7 +315,7 @@ export class BrowserOAuthProvider implements OAuthClientProvider {
       const key = `${this.packageId}_client`;
       this.clientInfoStorage.delete(key);
       try {
-        const filePath = path.join(path.dirname(this.tokenStoragePath), `${this.packageId}_client.json`);
+      const filePath = path.join(this.tokenStoragePath, `${this.packageId}_client.json`);
         await fs.unlink(filePath);
       } catch (error) {
         // Ignore if file doesn't exist

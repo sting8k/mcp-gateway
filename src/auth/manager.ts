@@ -16,7 +16,7 @@ interface StoredToken {
 }
 
 export class AuthManagerImpl implements AuthManager {
-  private static readonly SERVICE_NAME = "super-mcp-router";
+  private static readonly SERVICE_NAME = "mcp-gateway";
   private tokens: Map<string, StoredToken> = new Map();
   private activeFlows: Map<string, { deviceCode: string; interval: number; expiresAt: number }> = new Map();
   private fallbackDir?: string;

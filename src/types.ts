@@ -8,6 +8,7 @@ export interface StandardServerConfig {
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
+  disabled?: boolean;
   // Transport config:
   // - "stdio": Local command execution
   // - "sse": HTTP+SSE transport (deprecated in MCP spec 2025-03-26)
@@ -47,6 +48,7 @@ export interface PackageConfig {
   extra_headers?: Record<string, string>;
   visibility: "default" | "hidden";
   oauth?: boolean; // Enable OAuth for this server
+  disabled?: boolean;
 }
 
 export interface AuthConfig {

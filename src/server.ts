@@ -29,12 +29,12 @@ export async function startServer(options: {
   const { configPath, configPaths, logLevel = "info" } = options;
   
   // Handle both single and multiple config paths for backwards compatibility
-  const paths = configPaths || (configPath ? [configPath] : ["super-mcp-config.json"]);
+  const paths = configPaths || (configPath ? [configPath] : ["mcp-gateway-config.json"]);
 
   // Initialize logger
   logger.setLevel(logLevel as any);
   
-  logger.info("Starting Super MCP Router", {
+  logger.info("Starting MCP Gateway", {
     config_paths: paths,
     log_level: logLevel,
   });
@@ -52,7 +52,7 @@ export async function startServer(options: {
     // Create MCP server
     const server = new Server(
       {
-        name: "super-mcp-router",
+        name: "mcp-gateway",
         version: "0.1.0",
       },
       {
@@ -180,7 +180,7 @@ export async function startServer(options: {
           },
           {
             name: "get_help",
-            description: "Get detailed guidance on using Super-MCP effectively. Provides step-by-step instructions, common workflows, troubleshooting tips, and best practices. Use this when you need clarification on how to accomplish tasks.",
+            description: "Get detailed guidance on using MCP Gateway effectively. Provides step-by-step instructions, common workflows, troubleshooting tips, and best practices. Use this when you need clarification on how to accomplish tasks.",
             inputSchema: {
               type: "object",
               properties: {
@@ -327,7 +327,7 @@ export async function startServer(options: {
     const transport = new StdioServerTransport();
     await server.connect(transport);
 
-    logger.info("Super MCP Router started successfully");
+    logger.info("MCP Gateway started successfully");
 
     // Graceful shutdown
     process.on("SIGINT", async () => {
@@ -454,6 +454,14 @@ async function handleUseTool(
   // Validate that the package exists
   const packageConfig = registry.getPackage(package_id);
   if (!packageConfig) {
+    const disabledConfig = registry.getPackage(package_id, { include_disabled: true });
+    if (disabledConfig?.disabled) {
+      throw {
+        code: ERROR_CODES.PACKAGE_UNAVAILABLE,
+        message: `Package ${package_id} is disabled in configuration`,
+        data: { package_id },
+      };
+    }
     throw {
       code: ERROR_CODES.PACKAGE_NOT_FOUND,
       message: `Package not found: ${package_id}`,
@@ -629,12 +637,24 @@ async function handleAuthStatus(
 ): Promise<any> {
   const { package_id } = input;
 
-  const packageConfig = registry.getPackage(package_id);
+  const packageConfig = registry.getPackage(package_id, { include_disabled: true });
   if (!packageConfig) {
     throw {
       code: ERROR_CODES.PACKAGE_NOT_FOUND,
       message: `Package not found: ${package_id}`,
       data: { package_id },
+    };
+  }
+
+  if (packageConfig.disabled) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ state: "disabled" }, null, 2),
+        },
+      ],
+      isError: false,
     };
   }
 
@@ -723,9 +743,18 @@ async function handleHealthCheckAll(
 
   logger.info("Performing health check on all packages");
 
-  const packages = registry.getPackages({ safe_only: false });
+  const packages = registry.getPackages({ safe_only: false, include_disabled: true });
   const results = await Promise.all(
     packages.map(async (pkg) => {
+      if (pkg.disabled) {
+        return {
+          package_id: pkg.id,
+          name: pkg.name,
+          transport: pkg.transport,
+          status: "disabled",
+          diagnostic: "Package is disabled in configuration",
+        };
+      }
       try {
         const health = await registry.healthCheck(pkg.id);
         const client = await registry.getClient(pkg.id);
@@ -818,6 +847,7 @@ async function handleHealthCheckAll(
     healthy: results.filter((r) => r.status === "ok").length,
     errored: results.filter((r) => r.status === "error").length,
     unavailable: results.filter((r) => r.status === "unavailable").length,
+    disabled: results.filter((r) => r.status === "disabled").length,
     requiring_auth: results.filter((r) => r.requires_auth).length,
     authenticated: results.filter((r) => r.is_authenticated).length,
     with_env_issues: results.filter((r) => r.env_issues && r.env_issues.length > 0).length,
@@ -833,6 +863,9 @@ async function handleHealthCheckAll(
   }
   if (summary.with_env_issues > 0) {
     recommendations.push("Some packages have environment variable issues - check 'env_issues' for details");
+  }
+  if (summary.disabled > 0) {
+    recommendations.push("Some packages are disabled - update your configuration to enable them if needed");
   }
 
   return {
@@ -864,7 +897,7 @@ async function handleAuthenticate(
     timestamp: new Date().toISOString(),
   });
   
-  const pkg = registry.getPackage(package_id);
+  const pkg = registry.getPackage(package_id, { include_disabled: true });
   if (!pkg) {
     return {
       content: [
@@ -874,6 +907,22 @@ async function handleAuthenticate(
             package_id,
             status: "error",
             error: "Package not found",
+          }, null, 2),
+        },
+      ],
+      isError: false,
+    };
+  }
+
+  if (pkg.disabled) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            package_id,
+            status: "skipped",
+            message: "Package is disabled in configuration",
           }, null, 2),
         },
       ],
@@ -1138,6 +1187,39 @@ async function handleReconnectPackage(
   const { package_id } = input;
   
   logger.info("Attempting to reconnect package", { package_id });
+
+  const packageConfig = registry.getPackage(package_id, { include_disabled: true });
+  if (!packageConfig) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            package_id,
+            status: "error",
+            message: "Package not found",
+          }, null, 2),
+        },
+      ],
+      isError: false,
+    };
+  }
+
+  if (packageConfig.disabled) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            package_id,
+            status: "skipped",
+            message: "Package is disabled in configuration",
+          }, null, 2),
+        },
+      ],
+      isError: false,
+    };
+  }
   
   try {
     // Clear any existing client
@@ -1147,8 +1229,7 @@ async function handleReconnectPackage(
     // Clear transport pool for this package
     // const { TransportPool } = await import("./clients/transportPool.js");
     // const pool = TransportPool.getInstance();
-    const pkg = registry.getPackage(package_id);
-    if (pkg?.base_url) {
+    if (packageConfig.base_url) {
       // pool.clearTransport(package_id, pkg.base_url);
     }
     
@@ -1207,10 +1288,19 @@ async function handleAuthenticateAll(
   // await SimpleOAuthProvider.startGlobalCallbackServer();
   logger.info("OAuth callback server ready on port 5173");
 
-  const packages = registry.getPackages({ safe_only: false });
+  const packages = registry.getPackages({ safe_only: false, include_disabled: true });
   const results = [];
 
   for (const pkg of packages) {
+    if (pkg.disabled) {
+      results.push({
+        package_id: pkg.id,
+        name: pkg.name,
+        status: "skipped",
+        reason: "package disabled",
+      });
+      continue;
+    }
     // Skip stdio packages
     if (pkg.transport === "stdio") {
       results.push({
@@ -1337,9 +1427,9 @@ async function handleGetHelp(
 
 function getTopicHelp(topic: string): string {
   const helpTopics: Record<string, string> = {
-    getting_started: `# Getting Started with Super-MCP
+    getting_started: `# Getting Started with MCP Gateway
 
-Super-MCP provides a unified interface to multiple MCP (Model Context Protocol) packages. Here's how to use it effectively:
+MCP Gateway provides a unified interface to multiple MCP (Model Context Protocol) packages. Here's how to use it effectively:
 
 ## Basic Workflow
 1. **Discover Packages**: Use \`list_tool_packages\` to see available MCP packages
@@ -1358,7 +1448,7 @@ Super-MCP provides a unified interface to multiple MCP (Model Context Protocol) 
 - Some packages require authentication - use \`authenticate\` when needed
 - Use \`dry_run: true\` in use_tool to validate arguments without executing`,
 
-    workflow: `# Super-MCP Workflow Patterns
+    workflow: `# MCP Gateway Workflow Patterns
 
 ## Discovery Flow
 1. Start with \`list_tool_packages\` to understand available capabilities
@@ -1389,7 +1479,7 @@ Super-MCP provides a unified interface to multiple MCP (Model Context Protocol) 
 - Verify authentication status for API packages
 - Check argument types match the schema exactly`,
 
-    authentication: `# Authentication in Super-MCP
+    authentication: `# Authentication in MCP Gateway
 
 ## Overview
 Some MCP packages require authentication to access their APIs (e.g., Notion, Slack, GitHub private repos).
@@ -1410,7 +1500,7 @@ Some MCP packages require authentication to access their APIs (e.g., Notion, Sla
 - Some packages store tokens securely and remember authentication
 - Check package documentation for specific auth requirements`,
 
-    tool_discovery: `# Discovering Tools in Super-MCP
+    tool_discovery: `# Discovering Tools in MCP Gateway
 
 ## Understanding Package Structure
 Each package contains related tools:
@@ -1440,7 +1530,7 @@ Returns:
 - Use include_schemas: true only when debugging
 - Page through results if a package has many tools`,
 
-    error_handling: `# Error Handling in Super-MCP
+    error_handling: `# Error Handling in MCP Gateway
 
 ## Common Error Codes
 
@@ -1475,7 +1565,7 @@ Returns:
 - Check health status before troubleshooting
 - Read error messages carefully - they often contain the solution`,
 
-    common_patterns: `# Common Patterns in Super-MCP
+    common_patterns: `# Common Patterns in MCP Gateway
 
 ## File Management Pattern
 \`\`\`
@@ -1508,7 +1598,7 @@ Returns:
 4. Retry failed operations
 \`\`\``,
 
-    package_types: `# Package Types in Super-MCP
+    package_types: `# Package Types in MCP Gateway
 
 ## Local (stdio) Packages
 - Run as local processes on your machine
@@ -1565,7 +1655,7 @@ This error means the package_id you specified doesn't exist.
 
 ## Common Causes
 - Typo in package_id
-- Package not configured in super-mcp-config.json
+- Package not configured in your MCP Gateway config (e.g., ~/.mcp-gateway/config.json)
 - Using tool name instead of package_id`,
 
     [-32002]: `# Error -32002: TOOL_NOT_FOUND
@@ -1612,7 +1702,7 @@ The package exists but isn't responding.
 ## Common Causes
 - Local MCP server not installed
 - Network issues for HTTP packages
-- Incorrect configuration in super-mcp-config.json`,
+- Incorrect configuration in your MCP Gateway config (e.g., ~/.mcp-gateway/config.json)`,
 
     [-32005]: `# Error -32005: AUTH_REQUIRED
 
@@ -1668,13 +1758,21 @@ For more help, try:
 
 async function getPackageHelp(packageId: string, registry: PackageRegistry): Promise<string> {
   try {
-    const pkg = registry.getPackage(packageId);
+    const pkg = registry.getPackage(packageId, { include_disabled: true });
     if (!pkg) {
       return `# Package Not Found: ${packageId}
 
 The package "${packageId}" doesn't exist.
 
 Run \`list_tool_packages()\` to see available packages.`;
+    }
+
+    if (pkg.disabled) {
+      return `# Package Disabled: ${packageId}
+
+The package "${packageId}" is currently disabled in your configuration.
+
+Update your MCP Gateway config to enable it, then rerun \`list_tool_packages()\` or other commands.`;
     }
 
     const catalog = new Catalog(registry);

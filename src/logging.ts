@@ -29,12 +29,17 @@ class Logger {
     this.level = level;
     
     // Create logs directory
-    const logsDir = path.join(process.env.HOME || "", ".super-mcp", "logs");
-    fs.mkdirSync(logsDir, { recursive: true });
+    const baseDir = process.env.HOME || "";
+    const gatewayBase = path.join(baseDir, ".mcp-gateway");
+    const newDir = path.join(gatewayBase, "logs");
+    if (!fs.existsSync(newDir)) {
+      fs.mkdirSync(newDir, { recursive: true });
+    }
+    const logsDir = newDir;
     
     // Create log file with timestamp
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-    this.logFile = path.join(logsDir, `super-mcp-${timestamp}.log`);
+    this.logFile = path.join(logsDir, `mcp-gateway-${timestamp}.log`);
     
     // Create write stream
     this.logStream = fs.createWriteStream(this.logFile, { flags: 'a' });
@@ -42,7 +47,7 @@ class Logger {
     // Log startup
     this.writeToFile({
       level: "info",
-      msg: "===== Super MCP Router Starting =====",
+      msg: "===== MCP Gateway Starting =====",
       timestamp: new Date().toISOString(),
       pid: process.pid,
       node_version: process.version,

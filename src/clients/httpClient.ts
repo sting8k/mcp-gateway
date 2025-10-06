@@ -7,6 +7,7 @@ import { getLogger } from "../logging.js";
 import { exec } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs/promises";
+import { existsSync, mkdirSync } from "fs";
 import * as path from "path";
 import { homedir } from "os";
 
@@ -22,10 +23,20 @@ class SimpleOAuthProvider implements OAuthClientProvider {
   private codeVerifierValue?: string;
   private savedClientInfo?: any;
   private tokenStoragePath: string;
+  private legacyTokenStoragePath?: string;
   
   constructor(packageId: string) {
     this.packageId = packageId;
-    this.tokenStoragePath = path.join(homedir(), ".super-mcp", "oauth-tokens");
+    const baseDir = homedir();
+    const legacyDir = path.join(baseDir, ".super-mcp", "oauth-tokens");
+    const gatewayDir = path.join(baseDir, ".mcp-gateway", "oauth-tokens");
+    if (!existsSync(gatewayDir)) {
+      mkdirSync(gatewayDir, { recursive: true });
+    }
+    this.tokenStoragePath = gatewayDir;
+    if (existsSync(legacyDir)) {
+      this.legacyTokenStoragePath = legacyDir;
+    }
   }
   
   async initialize() {
@@ -34,9 +45,10 @@ class SimpleOAuthProvider implements OAuthClientProvider {
   }
   
   private async loadPersistedData() {
+    const clientFile = `${this.packageId}_client.json`;
     try {
       // Load client info
-      const clientPath = path.join(this.tokenStoragePath, `${this.packageId}_client.json`);
+      const clientPath = path.join(this.tokenStoragePath, clientFile);
       const clientData = await fs.readFile(clientPath, "utf8");
       this.savedClientInfo = JSON.parse(clientData);
       logger.debug("Loaded persisted client info", { 
@@ -44,12 +56,27 @@ class SimpleOAuthProvider implements OAuthClientProvider {
         client_id: this.savedClientInfo?.client_id 
       });
     } catch (error) {
-      // No saved client info
+      if (this.legacyTokenStoragePath) {
+        try {
+          const legacyPath = path.join(this.legacyTokenStoragePath, clientFile);
+          const clientData = await fs.readFile(legacyPath, "utf8");
+          this.savedClientInfo = JSON.parse(clientData);
+          await fs.mkdir(this.tokenStoragePath, { recursive: true });
+          await fs.writeFile(path.join(this.tokenStoragePath, clientFile), clientData);
+          logger.debug("Migrated persisted client info from legacy storage", {
+            package_id: this.packageId,
+            client_id: this.savedClientInfo?.client_id 
+          });
+        } catch {
+          // No saved client info
+        }
+      }
     }
     
+    const tokenFile = `${this.packageId}_tokens.json`;
     try {
       // Load tokens
-      const tokenPath = path.join(this.tokenStoragePath, `${this.packageId}_tokens.json`);
+      const tokenPath = path.join(this.tokenStoragePath, tokenFile);
       const tokenData = await fs.readFile(tokenPath, "utf8");
       this.savedTokens = JSON.parse(tokenData);
       logger.info("Loaded persisted OAuth tokens", { 
@@ -57,7 +84,21 @@ class SimpleOAuthProvider implements OAuthClientProvider {
         has_access_token: !!this.savedTokens?.access_token
       });
     } catch (error) {
-      // No saved tokens
+      if (this.legacyTokenStoragePath) {
+        try {
+          const legacyPath = path.join(this.legacyTokenStoragePath, tokenFile);
+          const tokenData = await fs.readFile(legacyPath, "utf8");
+          this.savedTokens = JSON.parse(tokenData);
+          await fs.mkdir(this.tokenStoragePath, { recursive: true });
+          await fs.writeFile(path.join(this.tokenStoragePath, tokenFile), tokenData);
+          logger.info("Migrated OAuth tokens from legacy storage", { 
+            package_id: this.packageId,
+            has_access_token: !!this.savedTokens?.access_token
+          });
+        } catch {
+          // No saved tokens
+        }
+      }
     }
   }
   
@@ -67,8 +108,8 @@ class SimpleOAuthProvider implements OAuthClientProvider {
   
   get clientMetadata() {
     return {
-      name: "super-mcp-router", 
-      description: "MCP Router for aggregating multiple MCP servers",
+      name: "mcp-gateway", 
+      description: "MCP Gateway for aggregating multiple MCP servers",
       redirect_uris: ["http://localhost:5173/oauth/callback"]
     };
   }
@@ -220,7 +261,7 @@ export class HttpMcpClient implements McpClient {
     this.config = config;
     
     this.client = new Client(
-      { name: "super-mcp-router", version: "0.1.0" },
+      { name: "mcp-gateway", version: "0.1.0" },
       { capabilities: {} }
     );
   }
@@ -512,7 +553,7 @@ export class HttpMcpClient implements McpClient {
         
         // Create a fresh client instance
         this.client = new Client(
-          { name: "super-mcp-router", version: "0.1.0" },
+          { name: "mcp-gateway", version: "0.1.0" },
           { capabilities: {} }
         );
         

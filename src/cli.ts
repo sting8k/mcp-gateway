@@ -9,14 +9,27 @@ const args = process.argv.slice(2);
 
 // Auto-create setup on first run
 async function ensureSetup(): Promise<string> {
-  const superMcpDir = path.join(homedir(), '.super-mcp');
-  const logsDir = path.join(superMcpDir, 'logs');
-  const configFile = path.join(superMcpDir, 'config.json');
+  const baseDir = homedir();
+  const legacyDir = path.join(baseDir, '.super-mcp');
+  const gatewayDir = path.join(baseDir, '.mcp-gateway');
+  if (!fs.existsSync(gatewayDir)) {
+    fs.mkdirSync(gatewayDir, { recursive: true });
+  }
+
+  const logsDir = path.join(gatewayDir, 'logs');
+  const configFile = path.join(gatewayDir, 'config.json');
   
   try {
     // Create directories if they don't exist
     if (!fs.existsSync(logsDir)) {
       fs.mkdirSync(logsDir, { recursive: true });
+    }
+
+    // If legacy config exists and new config is missing, migrate it
+    const legacyConfig = path.join(legacyDir, 'config.json');
+    if (!fs.existsSync(configFile) && fs.existsSync(legacyConfig)) {
+      fs.copyFileSync(legacyConfig, configFile);
+      console.error(`📁 Migrated existing config from ${legacyConfig} to ${configFile}`);
     }
     
     // Create empty config if it doesn't exist
@@ -27,7 +40,7 @@ async function ensureSetup(): Promise<string> {
       };
       fs.writeFileSync(configFile, JSON.stringify(emptyConfig, null, 2));
       console.error(`📁 Created config at: ${configFile}`);
-      console.error(`💡 Add MCP servers to the config or use 'npx super-mcp-router add'`);
+      console.error(`💡 Add MCP servers to the config or use 'npx mcp-gateway add'`);
     }
   } catch (error) {
     // Non-fatal, continue anyway
@@ -48,12 +61,12 @@ const getConfigPaths = async (): Promise<string[]> => {
   
   // If no --config args, check environment variable or use default
   if (configs.length === 0) {
-    const envConfig = process.env.SUPER_MCP_CONFIG;
+    const envConfig = process.env.MCP_GATEWAY_CONFIG || process.env.SUPER_MCP_CONFIG;
     if (envConfig) {
       // Support comma-separated paths in env variable
       configs.push(...envConfig.split(',').map(p => p.trim()));
     } else {
-      // Use default config location (now in ~/.super-mcp/)
+      // Use default config location (now in ~/.mcp-gateway/ with fallback to ~/.super-mcp/)
       const defaultConfig = await ensureSetup();
       configs.push(defaultConfig);
     }
@@ -70,10 +83,7 @@ const getArg = (name: string, d?: string) => {
 // Simple CLI for adding MCPs
 async function handleAddCommand() {
   const serverType = args[1];
-  const configFile = path.join(homedir(), '.super-mcp', 'config.json');
-  
-  // Ensure setup exists
-  await ensureSetup();
+  const configFile = await ensureSetup();
   
   // Read existing config
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
@@ -105,12 +115,12 @@ async function handleAddCommand() {
   };
   
   if (!serverType || serverType === '--help') {
-    console.error("Usage: npx super-mcp-router add <server-type>");
+    console.error("Usage: npx mcp-gateway add <server-type>");
     console.error("\nAvailable server types:");
     Object.keys(templates).forEach(type => {
       console.error(`  ${type} - ${templates[type].description}`);
     });
-    console.error("\nExample: npx super-mcp-router add filesystem");
+    console.error("\nExample: npx mcp-gateway add filesystem");
     process.exit(0);
   }
   
