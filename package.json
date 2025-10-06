@@ -6,6 +6,7 @@
   "type": "module",
   "main": "dist/server.js",
   "bin": {
+    "super-mcp-router": "dist/cli.js",
     "mcp-gateway": "dist/cli.js"
   },
   "files": [
@@ -22,6 +23,7 @@
     "test": "vitest run",
     "clean": "rm -rf dist/",
     "prepublishOnly": "npm run clean && npm run build",
+    "prepare": "npm run build",
     "remote:router": "npx github:sting8k/mcp-gateway --config ./super-mcp-config.json"
   },
   "keywords": [
