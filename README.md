@@ -1,6 +1,13 @@
 # MCP Gateway
 
-Aggregate multiple MCP servers into a single interface for CLI. No installation required.
+Aggregate multiple MCP servers into a single interface for AI agents. No installation required.
+
+**Key features**
+- Unified router for stdio, SSE, and streamable HTTP packages
+- Built-in OAuth flows with secure token storage
+- Auto-generated config with hot reload across multiple files
+- Tool/package discovery, health checks, and validation helpers
+- Structured logging with optional file output for debugging
 
 ## Quick Start
 
@@ -121,11 +128,6 @@ export MCP_GATEWAY_CONFIG="~/personal.json,~/work.json"
 **From GitHub:**
 ```bash
 npx github:sting8k/mcp-gateway
-```
-
-**Global install (if published to npm):**
-```bash
-npm install -g mcp-gateway
 ```
 
 **From source:**
