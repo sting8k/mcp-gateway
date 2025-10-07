@@ -166,7 +166,7 @@ async function main() {
     }
     const logToFile = resolveFileLoggingPreference();
     const configPaths = await getConfigPaths({ enableFileLogging: logToFile });
-    const logLevel = getArg("log-level", "info");
+    const logLevel = getArg("log-level", "error");
     const transportArg = getArg("transport", "http") ?? "http";
     const validTransports = new Set(["http", "sse", "stdio"]);
     if (!validTransports.has(transportArg)) {

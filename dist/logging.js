@@ -27,7 +27,7 @@ class Logger {
     logStream;
     enableFileLogging;
     isStdioMode;
-    constructor(level = "info", options) {
+    constructor(level = "error", options) {
         this.level = level;
         const baseDir = options?.baseDir ?? process.env.HOME ?? "";
         this.isStdioMode = options?.isStdioMode ?? false;
@@ -184,14 +184,14 @@ class Logger {
 }
 let logger;
 let loggerOptions;
-export function initLogger(level = "info", options) {
+export function initLogger(level = "error", options) {
     loggerOptions = options;
     logger = new Logger(level, options);
     return logger;
 }
 export function getLogger() {
     if (!logger) {
-        logger = new Logger("info", loggerOptions);
+        logger = new Logger("error", loggerOptions);
     }
     return logger;
 }
