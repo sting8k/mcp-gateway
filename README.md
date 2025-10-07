@@ -15,7 +15,7 @@ Edit your Claude config:
   "mcpServers": {
     "mcp-gateway": {
       "command": "npx",
-      "args": ["-y", "github:sting8k/mcp-gateway"]
+      "args": ["-y", "github:sting8k/mcp-gateway", "--transport", "stdio", "--log-to-file", "--log-level", "info"]
     }
   }
 }
@@ -24,6 +24,8 @@ Edit your Claude config:
 **2. Restart Claude**
 
 MCP Gateway auto-creates `~/.mcp-gateway/config.json` on first run.
+
+> ℹ️ `--transport stdio` is required for Claude Desktop integration. `--log-to-file` keeps protocol-safe logs under `~/.mcp-gateway/logs/`; adjust `--log-level` as needed.
 
 **3. Add MCP Servers** (Optional)
 
