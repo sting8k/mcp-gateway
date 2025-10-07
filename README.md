@@ -19,7 +19,20 @@ Edit your cli config:
 }
 ```
 
-**2. Restart Claude**
+Or with Streamable HTTP (default port is `3001`):
+
+```json
+{
+  "mcpServers": {
+    "mcp-gateway": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp"
+    }
+  }
+}
+```
+
+**2. Restart CLI**
 
 MCP Gateway auto-creates `~/.mcp-gateway/config.json` on first run.
 
