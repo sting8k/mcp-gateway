@@ -213,9 +213,10 @@ export class BrowserOAuthProvider {
             });
         }
         else {
-            console.log(`\nPlease visit the following URL to authorize ${this.packageId}:`);
-            console.log(authorizationUrl.toString());
-            console.log("\n");
+            logger.info("OAuth authorization URL generated", {
+                package_id: this.packageId,
+                authorization_url: authorizationUrl.toString(),
+            });
         }
         // Wait for the authorization code to be received
         try {

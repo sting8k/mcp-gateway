@@ -1639,7 +1639,10 @@ async function handleAuthenticateAll(input, registry) {
             }
         }
         // Authenticate this package
-        console.log(`\n📦 Authenticating ${pkg.name}...`);
+        logger.info("Authenticating package", {
+            package_id: pkg.id,
+            package_name: pkg.name,
+        });
         const authResult = await handleAuthenticate({ package_id: pkg.id, wait_for_completion }, registry);
         // Parse the result
         try {
