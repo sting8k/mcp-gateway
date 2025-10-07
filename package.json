@@ -22,7 +22,6 @@
     "test": "vitest run",
     "clean": "rm -rf dist/",
     "prepublishOnly": "npm run clean && npm run build",
-    "prepare": "npm run build",
     "remote:router": "npx github:sting8k/mcp-gateway"
   },
   "keywords": [
