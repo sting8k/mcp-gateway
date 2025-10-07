@@ -157,11 +157,26 @@ async function main() {
   
   const configPaths = await getConfigPaths();
   const logLevel = getArg("log-level", "info");
+  const transportArg = getArg("transport", "http") ?? "http";
+  const validTransports = new Set(["http", "sse", "stdio"]);
+  if (!validTransports.has(transportArg)) {
+    console.error(`Invalid transport: ${transportArg}. Expected one of http, sse, stdio.`);
+    process.exit(1);
+  }
+  const transport = transportArg as "http" | "sse" | "stdio";
+  const host = getArg("host", "127.0.0.1");
+  const portArg = getArg("port");
+  const port = portArg ? Number(portArg) : 3001;
+
+  if (Number.isNaN(port)) {
+    console.error(`Invalid port: ${portArg}`);
+    process.exit(1);
+  }
 
   // Initialize logger
   initLogger(logLevel as any);
 
-  startServer({ configPaths, logLevel }).catch(err => {
+  startServer({ configPaths, logLevel, transport, host, port }).catch(err => {
     console.error(JSON.stringify({ level: "fatal", msg: String(err) }));
     process.exit(1);
   });
