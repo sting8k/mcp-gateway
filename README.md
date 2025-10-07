@@ -6,7 +6,7 @@ Aggregate multiple MCP servers into a single interface for Claude. No installati
 
 **1. Add to Claude Desktop**
 
-Edit your Claude config file:
+Edit your Claude config:
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
@@ -21,17 +21,18 @@ Edit your Claude config file:
 }
 ```
 
-**2. Restart Claude Desktop**
+**2. Restart Claude**
 
-**3. Add MCP Servers**
+MCP Gateway auto-creates `~/.mcp-gateway/config.json` on first run.
+
+**3. Add MCP Servers** (Optional)
 
 ```bash
 npx mcp-gateway add filesystem
 npx mcp-gateway add github
-npx mcp-gateway add memory
 ```
 
-Or edit `~/.mcp-gateway/config.json` manually.
+Or edit `~/.mcp-gateway/config.json` directly.
 
 ## Configuration
 
