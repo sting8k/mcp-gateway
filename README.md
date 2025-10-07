@@ -7,30 +7,60 @@
 MCP Gateway lets any compatible client talk to multiple Model Context Protocol servers through one entry point. It supports stdio and streamable HTTP transports, manages OAuth flows, and keeps configuration in sync across files with hot reloading.
 
 ```mermaid
-flowchart LR
-  Client["MCP-enabled Client"]
-  Gateway["MCP Gateway"]
-
-  subgraph Local["Local Environment"]
-    Config["Config Files (~/.mcp-gateway)"]
-    Keychain["OS Keychain"]
+flowchart TB
+  subgraph Clients["AI Clients"]
+    CLI["Claude Desktop<br/>(stdio)"]
+    HTTP["Custom Client<br/>(HTTP)"]
   end
 
-  subgraph Servers["MCP Servers"]
-    ServerA["Server A"]
-    ServerB["Server B"]
+  subgraph Gateway["MCP Gateway"]
+    Router["Central Router"]
+    Discovery["Tool Discovery"]
+    Auth["OAuth Manager"]
+    Cache["Config Hot Reload"]
   end
 
-  Client --> Gateway
-  Config --> Gateway
-  Keychain --> Gateway
-  Gateway --> ServerA
-  Gateway --> ServerB
+  subgraph Storage["Local Storage"]
+    Config["Config Files<br/>~/.mcp-gateway"]
+    Keychain["OS Keychain<br/>(Tokens)"]
+  end
+
+  subgraph MCPServers["⚡ MCP Servers"]
+    FS["Filesystem<br/>(stdio)"]
+    GH["GitHub<br/>(stdio)"]
+    Notion["Notion<br/>(HTTP + OAuth)"]
+    Custom["Custom Server<br/>(SSE)"]
+  end
+
+  CLI -.->|stdio| Router
+  HTTP -.->|HTTP/SSE| Router
+  
+  Router -->|parallel execution| FS
+  Router -->|parallel execution| GH
+  Router -->|parallel execution| Notion
+  Router -->|parallel execution| Custom
+  
+  Config -.->|load/watch| Cache
+  Keychain -.->|secure tokens| Auth
+  
+  Discovery -.->|list tools| Router
+  Auth -.->|authenticate| Router
+
+  classDef clientStyle fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
+  classDef gatewayStyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+  classDef serverStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+  classDef storageStyle fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+  
+  class CLI,HTTP clientStyle
+  class Router,Discovery,Auth,Cache gatewayStyle
+  class FS,GH,Notion,Custom serverStyle
+  class Config,Keychain storageStyle
 ```
 
 ## Key Features
 
 - **Transport flexibility** – Connect stdio, SSE, and streamable HTTP packages from one router.
+- **Parallel execution** – Run multiple tool calls simultaneously with `multi_use_tool` for faster workflows.
 - **Secure authentication** – Run built-in OAuth flows with token storage handled by the OS keychain.
 - **Config orchestration** – Generate configs automatically, hot-reload changes, and merge multiple files.
 - **Discovery & validation** – Inspect tool and package metadata, run health checks, and validate schemas.
