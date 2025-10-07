@@ -2,7 +2,7 @@
 
 All notable changes to MCP Gateway will be documented in this file.
 
-## [1.4.0] - 2025-01-07
+## [1.4.0] - 2025-10-07
 
 ### Added
 - **Direct GitHub execution**: Committed dist/ files for `npx github:sting8k/mcp-gateway`
