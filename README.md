@@ -15,7 +15,7 @@ Edit your Claude config file:
   "mcpServers": {
     "mcp-gateway": {
       "command": "npx",
-      "args": ["-y", "mcp-gateway@latest"]
+      "args": ["-y", "github:sting8k/mcp-gateway"]
     }
   }
 }
@@ -97,14 +97,14 @@ export MCP_GATEWAY_CONFIG="~/personal.json,~/work.json"
 
 ## Installation Alternatives
 
-**Global install:**
-```bash
-npm install -g mcp-gateway
-```
-
-**From GitHub (for forks):**
+**From GitHub:**
 ```bash
 npx github:sting8k/mcp-gateway
+```
+
+**Global install (if published to npm):**
+```bash
+npm install -g mcp-gateway
 ```
 
 **From source:**

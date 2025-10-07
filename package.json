@@ -38,12 +38,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/JoshuaWohle/Super-MCP.git"
+    "url": "git+https://github.com/sting8k/mcp-gateway.git"
   },
   "bugs": {
-    "url": "https://github.com/JoshuaWohle/Super-MCP/issues"
+    "url": "https://github.com/sting8k/mcp-gateway/issues"
   },
-  "homepage": "https://github.com/JoshuaWohle/Super-MCP#readme",
+  "homepage": "https://github.com/sting8k/mcp-gateway#readme",
   "engines": {
     "node": ">=18.0.0"
   },
