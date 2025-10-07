@@ -49,6 +49,8 @@ export async function startServer(options: {
     const validator = getValidator();
     const authManager = registry.getAuthManager();
 
+    await connectConfiguredPackages(registry);
+
     // Create MCP server
     const server = new Server(
       {
@@ -348,6 +350,73 @@ export async function startServer(options: {
     });
     throw error;
   }
+}
+
+async function connectConfiguredPackages(registry: PackageRegistry): Promise<void> {
+  const packages = registry.getPackages();
+
+  if (packages.length === 0) {
+    logger.info("No MCP packages configured - skipping eager connections");
+    return;
+  }
+
+  logger.info("Connecting configured MCP packages", {
+    package_count: packages.length,
+  });
+
+  const results = await Promise.all(
+    packages.map(async (pkg) => {
+      const startedAt = Date.now();
+
+      try {
+        const client = await registry.getClient(pkg.id);
+        let health: string | undefined;
+
+        if ("healthCheck" in client && typeof client.healthCheck === "function") {
+          try {
+            health = await client.healthCheck();
+          } catch (error) {
+            logger.debug("Health check failed during eager connection", {
+              package_id: pkg.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            health = "error";
+          }
+        }
+
+        logger.info("Package connection attempt completed", {
+          package_id: pkg.id,
+          duration_ms: Date.now() - startedAt,
+          health,
+        });
+
+        if (health === "needs_auth") {
+          logger.warn("Package requires authentication before use", {
+            package_id: pkg.id,
+            hint: `Run 'authenticate(package_id: "${pkg.id}")' to connect`,
+          });
+        }
+
+        return { status: "connected", health };
+      } catch (error) {
+        logger.warn("Failed to connect to package during startup", {
+          package_id: pkg.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        return { status: "failed" };
+      }
+    })
+  );
+
+  const connected = results.filter((result) => result.status === "connected").length;
+  const failed = results.length - connected;
+
+  logger.info("Finished eager MCP package connections", {
+    connected,
+    failed,
+    total: packages.length,
+  });
 }
 
 async function handleListToolPackages(
