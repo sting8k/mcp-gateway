@@ -46,10 +46,10 @@ flowchart TB
   Discovery -.->|list tools| Router
   Auth -.->|authenticate| Router
 
-  classDef clientStyle fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
-  classDef gatewayStyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-  classDef serverStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-  classDef storageStyle fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+  classDef clientStyle fill:#e1f5ff,stroke:#0288d1,stroke-width:2px,color:#000000
+  classDef gatewayStyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000000
+  classDef serverStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000000
+  classDef storageStyle fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000000
   
   class CLI,HTTP clientStyle
   class Router,Discovery,Auth,Cache gatewayStyle
