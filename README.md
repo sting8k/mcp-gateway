@@ -288,14 +288,14 @@ To update: `npm update -g mcp-gateway`
 
 ```bash
 # Run once-off
-npx github:yourname/mcp-gateway
+npx github:sting8k/mcp-gateway
 
 # Or use in Claude config
 {
   "mcpServers": {
     "mcp-gateway": {
       "command": "npx",
-      "args": ["-y", "github:yourname/mcp-gateway"]
+      "args": ["-y", "github:sting8k/mcp-gateway"]
     }
   }
 }
