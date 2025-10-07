@@ -1,14 +1,12 @@
 # MCP Gateway
 
-Aggregate multiple MCP servers into a single interface for Claude. No installation required.
+Aggregate multiple MCP servers into a single interface for CLI. No installation required.
 
 ## Quick Start
 
-**1. Add to Claude Desktop**
+**1. Add to AI Agent CLI**
 
-Edit your Claude config:
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+Edit your cli config:
 
 ```json
 {
@@ -25,7 +23,7 @@ Edit your Claude config:
 
 MCP Gateway auto-creates `~/.mcp-gateway/config.json` on first run.
 
-> ℹ️ `--transport stdio` is required for Claude Desktop integration. `--log-to-file` keeps protocol-safe logs under `~/.mcp-gateway/logs/`; adjust `--log-level` as needed.
+> `--transport stdio` is required for CLI's MCP integration. `--log-to-file` keeps protocol-safe logs under `~/.mcp-gateway/logs/`; adjust `--log-level` as needed.
 
 **3. Add MCP Servers** (Optional)
 
