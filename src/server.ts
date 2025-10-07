@@ -21,17 +21,21 @@ import { Catalog } from "./catalog.js";
 import { getValidator, ValidationError } from "./validator.js";
 import { getLogger } from "./logging.js";
 import http from "node:http";
+import { FSWatcher, watch } from "node:fs";
+import path from "node:path";
 import { URL } from "node:url";
 
 const logger = getLogger();
 
 type TransportMode = "stdio" | "sse" | "http";
 
-function createGatewayServer(
-  registry: PackageRegistry,
-  catalog: Catalog,
-  validator: ReturnType<typeof getValidator>
-): Server {
+interface GatewayContext {
+  registry: PackageRegistry;
+  catalog: Catalog;
+  validator: ReturnType<typeof getValidator>;
+}
+
+function createGatewayServer(context: GatewayContext): Server {
   const server = new Server(
     {
       name: "mcp-gateway",
@@ -234,22 +238,22 @@ function createGatewayServer(
     try {
       switch (name) {
         case "list_tool_packages":
-          return await handleListToolPackages(args as any, registry, catalog);
+          return await handleListToolPackages(args as any, context.registry, context.catalog);
 
         case "list_tools":
-          return await handleListTools(args as any, catalog, validator);
+          return await handleListTools(args as any, context.catalog, context.validator);
 
         case "use_tool":
-          return await handleUseTool(args as any, registry, catalog, validator);
+          return await handleUseTool(args as any, context.registry, context.catalog, context.validator);
 
         case "health_check_all":
-          return await handleHealthCheckAll(args as any, registry);
+          return await handleHealthCheckAll(args as any, context.registry);
 
         case "authenticate":
-          return await handleAuthenticate(args as any, registry);
+          return await handleAuthenticate(args as any, context.registry);
 
         case "get_help":
-          return await handleGetHelp(args as any, registry);
+          return await handleGetHelp(args as any, context.registry);
 
         default:
           throw {
@@ -315,7 +319,8 @@ export async function startServer(options: {
 }): Promise<void> {
   const { configPath, configPaths, logLevel = "info", transport = "http", host = "127.0.0.1", port = 3001 } = options;
 
-  const paths = configPaths || (configPath ? [configPath] : ["mcp-gateway-config.json"]);
+  const rawPaths = configPaths || (configPath ? [configPath] : ["mcp-gateway-config.json"]);
+  const paths = rawPaths.map((cfgPath) => path.resolve(cfgPath));
 
   logger.setLevel(logLevel as any);
 
@@ -327,22 +332,152 @@ export async function startServer(options: {
     port,
   });
 
+  const configWatchers: FSWatcher[] = [];
+  const closeWatchers = () => {
+    while (configWatchers.length > 0) {
+      const watcher = configWatchers.pop();
+      if (!watcher) {
+        continue;
+      }
+      try {
+        watcher.close();
+      } catch (error) {
+        logger.debug("Failed to close configuration watcher", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  };
+
+  let reloadTimeout: NodeJS.Timeout | null = null;
+  let reloadInProgress = false;
+  let reloadQueued = false;
+
   try {
-    const registry = await PackageRegistry.fromConfigFiles(paths);
-    const catalog = new Catalog(registry);
+    let registry = await PackageRegistry.fromConfigFiles(paths);
+    let catalog = new Catalog(registry);
     const validator = getValidator();
 
-    await connectConfiguredPackages(registry);
+    const context: GatewayContext = {
+      registry,
+      catalog,
+      validator,
+    };
+
+    await connectConfiguredPackages(context.registry);
+
+    const scheduleReload = () => {
+      if (reloadTimeout) {
+        clearTimeout(reloadTimeout);
+      }
+      reloadTimeout = setTimeout(() => {
+        reloadTimeout = null;
+        void reloadConfig();
+      }, 300);
+    };
+
+    const reloadConfig = async () => {
+      if (reloadInProgress) {
+        reloadQueued = true;
+        return;
+      }
+
+      reloadInProgress = true;
+      let previousRegistry: PackageRegistry | undefined;
+      try {
+        logger.info("Reloading configuration", {
+          config_paths: paths,
+        });
+
+        const newRegistry = await PackageRegistry.fromConfigFiles(paths);
+        const newCatalog = new Catalog(newRegistry);
+
+        await connectConfiguredPackages(newRegistry);
+
+        previousRegistry = context.registry;
+        const previousCatalog = context.catalog;
+
+        context.registry = newRegistry;
+        context.catalog = newCatalog;
+
+        registry = newRegistry;
+        catalog = newCatalog;
+
+        if (previousRegistry && previousRegistry !== newRegistry) {
+          try {
+            await previousRegistry.closeAll();
+          } catch (error) {
+            logger.debug("Failed to close previous registry", {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+
+        if (previousCatalog && previousCatalog !== newCatalog) {
+          previousCatalog.clear();
+        }
+
+        logger.info("Configuration reloaded successfully", {
+          package_count: context.registry.getPackages({ include_disabled: true }).length,
+        });
+      } catch (error) {
+        logger.error("Failed to reload configuration", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        reloadInProgress = false;
+        if (reloadQueued) {
+          reloadQueued = false;
+          scheduleReload();
+        }
+      }
+    };
+
+    for (const configPath of paths) {
+      const dir = path.dirname(configPath);
+      const fileName = path.basename(configPath);
+      try {
+        const watcher = watch(dir, { persistent: true }, (eventType, changed) => {
+          let changedName: string | undefined;
+          if (typeof changed === "string") {
+            changedName = changed;
+          } else if (changed) {
+            changedName = (changed as Buffer).toString();
+          }
+          if (!changedName || path.basename(changedName) !== fileName) {
+            return;
+          }
+          logger.info("Detected configuration change", {
+            event: eventType,
+            config_path: configPath,
+          });
+          scheduleReload();
+        });
+        watcher.on("error", (error) => {
+          logger.warn("Configuration watcher error", {
+            config_path: configPath,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+        configWatchers.push(watcher);
+      } catch (error) {
+        logger.warn("Failed to watch configuration file", {
+          config_path: configPath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     if (transport === "stdio") {
-      const server = createGatewayServer(registry, catalog, validator);
+      const server = createGatewayServer(context);
       const stdioTransport = new StdioServerTransport();
       await server.connect(stdioTransport);
       logger.info("MCP Gateway started successfully (stdio mode)");
 
       const shutdown = async () => {
         logger.info("Shutting down...");
-        await registry.closeAll();
+        closeWatchers();
+        await context.registry.closeAll();
         process.exit(0);
       };
 
@@ -363,7 +498,7 @@ export async function startServer(options: {
         },
       });
 
-      const server = createGatewayServer(registry, catalog, validator);
+      const server = createGatewayServer(context);
       await server.connect(streamableTransport);
 
       const allowedPaths = new Set(["/", "/mcp", "/mcp/"]);
@@ -476,7 +611,8 @@ export async function startServer(options: {
       const shutdown = async () => {
         logger.info("Shutting down...");
         httpServer.close();
-        await registry.closeAll();
+        closeWatchers();
+        await context.registry.closeAll();
         process.exit(0);
       };
 
@@ -534,7 +670,7 @@ export async function startServer(options: {
           res.setHeader("Access-Control-Allow-Origin", "*");
           res.setHeader("Cache-Control", "no-cache, no-transform");
           const transportInstance = new SSEServerTransport("/transport", res);
-          const gatewayServer = createGatewayServer(registry, catalog, validator);
+          const gatewayServer = createGatewayServer(context);
 
           sessions.set(transportInstance.sessionId, { transport: transportInstance, server: gatewayServer });
 
@@ -641,7 +777,8 @@ export async function startServer(options: {
     const shutdown = async () => {
       logger.info("Shutting down...");
       sseServer.close();
-      await registry.closeAll();
+      closeWatchers();
+      await context.registry.closeAll();
       for (const sessionId of Array.from(sessions.keys())) {
         await cleanupSession(sessionId);
       }

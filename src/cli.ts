@@ -7,8 +7,39 @@ import { homedir } from "os";
 
 const args = process.argv.slice(2);
 
+const hasFlag = (flag: string) => args.includes(flag);
+
+const envFileLoggingPreference = (): boolean | undefined => {
+  const raw = process.env.MCP_GATEWAY_ENABLE_FILE_LOGS;
+  if (!raw) {
+    return undefined;
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return undefined;
+};
+
+const resolveFileLoggingPreference = (): boolean => {
+  if (hasFlag("--log-to-file")) {
+    return true;
+  }
+  if (hasFlag("--no-log-to-file")) {
+    return false;
+  }
+  const envPreference = envFileLoggingPreference();
+  if (typeof envPreference === "boolean") {
+    return envPreference;
+  }
+  return false;
+};
+
 // Auto-create setup on first run
-async function ensureSetup(): Promise<string> {
+async function ensureSetup(options: { enableFileLogging?: boolean } = {}): Promise<string> {
   const baseDir = homedir();
   const legacyDir = path.join(baseDir, '.super-mcp');
   const gatewayDir = path.join(baseDir, '.mcp-gateway');
@@ -16,13 +47,14 @@ async function ensureSetup(): Promise<string> {
     fs.mkdirSync(gatewayDir, { recursive: true });
   }
 
-  const logsDir = path.join(gatewayDir, 'logs');
   const configFile = path.join(gatewayDir, 'config.json');
   
   try {
-    // Create directories if they don't exist
-    if (!fs.existsSync(logsDir)) {
-      fs.mkdirSync(logsDir, { recursive: true });
+    if (options.enableFileLogging) {
+      const logsDir = path.join(gatewayDir, 'logs');
+      if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+      }
     }
 
     // If legacy config exists and new config is missing, migrate it
@@ -51,7 +83,7 @@ async function ensureSetup(): Promise<string> {
 }
 
 // Get all --config arguments (can be multiple)
-const getConfigPaths = async (): Promise<string[]> => {
+const getConfigPaths = async (options: { enableFileLogging?: boolean } = {}): Promise<string[]> => {
   const configs: string[] = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--config" && i + 1 < args.length) {
@@ -67,7 +99,7 @@ const getConfigPaths = async (): Promise<string[]> => {
       configs.push(...envConfig.split(',').map(p => p.trim()));
     } else {
       // Use default config location (now in ~/.mcp-gateway/ with fallback to ~/.super-mcp/)
-      const defaultConfig = await ensureSetup();
+      const defaultConfig = await ensureSetup(options);
       configs.push(defaultConfig);
     }
   }
@@ -83,7 +115,7 @@ const getArg = (name: string, d?: string) => {
 // Simple CLI for adding MCPs
 async function handleAddCommand() {
   const serverType = args[1];
-  const configFile = await ensureSetup();
+  const configFile = await ensureSetup({ enableFileLogging: resolveFileLoggingPreference() });
   
   // Read existing config
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
@@ -155,7 +187,8 @@ async function main() {
     return handleAddCommand();
   }
   
-  const configPaths = await getConfigPaths();
+  const logToFile = resolveFileLoggingPreference();
+  const configPaths = await getConfigPaths({ enableFileLogging: logToFile });
   const logLevel = getArg("log-level", "info");
   const transportArg = getArg("transport", "http") ?? "http";
   const validTransports = new Set(["http", "sse", "stdio"]);
@@ -174,7 +207,7 @@ async function main() {
   }
 
   // Initialize logger
-  initLogger(logLevel as any);
+  initLogger(logLevel as any, { enableFileLogging: logToFile });
 
   startServer({ configPaths, logLevel, transport, host, port }).catch(err => {
     console.error(JSON.stringify({ level: "fatal", msg: String(err) }));

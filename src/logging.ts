@@ -13,6 +13,26 @@ export interface LogEntry {
   [key: string]: any;
 }
 
+export interface LoggerOptions {
+  enableFileLogging?: boolean;
+  baseDir?: string;
+}
+
+function envEnablesFileLogging(): boolean {
+  const raw = process.env.MCP_GATEWAY_ENABLE_FILE_LOGS;
+  if (!raw) {
+    return false;
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return false;
+}
+
 class Logger {
   private level: LogLevel;
   private levelPriority: Record<LogLevel, number> = {
@@ -22,44 +42,43 @@ class Logger {
     error: 3,
     fatal: 4,
   };
-  private logFile: string;
+  private logFile?: string;
   private logStream?: fs.WriteStream;
+  private readonly enableFileLogging: boolean;
 
-  constructor(level: LogLevel = "info") {
+  constructor(level: LogLevel = "info", options?: LoggerOptions) {
     this.level = level;
-    
-    // Create logs directory
-    const baseDir = process.env.HOME || "";
-    const gatewayBase = path.join(baseDir, ".mcp-gateway");
-    const newDir = path.join(gatewayBase, "logs");
-    if (!fs.existsSync(newDir)) {
-      fs.mkdirSync(newDir, { recursive: true });
+    const baseDir = options?.baseDir ?? process.env.HOME ?? "";
+    this.enableFileLogging =
+      typeof options?.enableFileLogging === "boolean"
+        ? options.enableFileLogging
+        : envEnablesFileLogging();
+
+    if (this.enableFileLogging && baseDir) {
+      const gatewayBase = path.join(baseDir, ".mcp-gateway");
+      const logsDir = path.join(gatewayBase, "logs");
+      if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+      this.logFile = path.join(logsDir, `mcp-gateway-${timestamp}.log`);
+      this.logStream = fs.createWriteStream(this.logFile, { flags: "a" });
+
+      this.writeToFile({
+        level: "info",
+        msg: "===== MCP Gateway Starting =====",
+        timestamp: new Date().toISOString(),
+        pid: process.pid,
+        node_version: process.version,
+        platform: process.platform,
+        log_file: this.logFile,
+      });
+
+      console.error(`📝 Logging to: ${this.logFile}`);
     }
-    const logsDir = newDir;
-    
-    // Create log file with timestamp
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-    this.logFile = path.join(logsDir, `mcp-gateway-${timestamp}.log`);
-    
-    // Create write stream
-    this.logStream = fs.createWriteStream(this.logFile, { flags: 'a' });
-    
-    // Log startup
-    this.writeToFile({
-      level: "info",
-      msg: "===== MCP Gateway Starting =====",
-      timestamp: new Date().toISOString(),
-      pid: process.pid,
-      node_version: process.version,
-      platform: process.platform,
-      log_file: this.logFile,
-    });
-    
-    // Handle process events
+
     this.setupProcessHandlers();
-    
-    // Print log location to console
-    console.error(`📝 Logging to: ${this.logFile}`);
   }
   
   private setupProcessHandlers() {
@@ -199,16 +218,18 @@ class Logger {
   }
 }
 
-let logger: Logger;
+let logger: Logger | undefined;
+let loggerOptions: LoggerOptions | undefined;
 
-export function initLogger(level: LogLevel = "info"): Logger {
-  logger = new Logger(level);
+export function initLogger(level: LogLevel = "info", options?: LoggerOptions): Logger {
+  loggerOptions = options;
+  logger = new Logger(level, options);
   return logger;
 }
 
 export function getLogger(): Logger {
   if (!logger) {
-    logger = new Logger();
+    logger = new Logger("info", loggerOptions);
   }
   return logger;
 }
