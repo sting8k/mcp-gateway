@@ -36,7 +36,7 @@ Add this to your Claude Desktop MCP settings:
 ### 2. Restart Claude Desktop
 
 That's it! MCP Gateway will automatically:
-- Create a `~/.mcp-gateway/` directory (migrating a legacy `~/.super-mcp/` directory if present)
+- Create a `~/.mcp-gateway/` directory for its data
 - Create an empty config file at `~/.mcp-gateway/config.json`
 - Start working immediately (even with no MCPs configured)
 
@@ -161,15 +161,14 @@ The `add` command:
 If no `--config` is specified, MCP Gateway uses:
 - `~/.mcp-gateway/config.json` (auto-created if missing)
 
-A legacy `~/.super-mcp/config.json` is migrated on first run. You can still use custom locations:
+You can still use custom locations:
 
 ```bash
 npx mcp-gateway --config /custom/path/config.json
 ```
 
-Environment variables:
+Environment variable:
 - `MCP_GATEWAY_CONFIG=/path/to/config.json` (supports comma-separated paths)
-- `SUPER_MCP_CONFIG` is still respected for backwards compatibility
 
 ### Log to File (Optional)
 
@@ -285,6 +284,25 @@ Then use in Claude config:
 
 To update: `npm update -g mcp-gateway`
 
+### Run Directly from GitHub (No npm publish needed!)
+
+```bash
+# Run once-off
+npx github:yourname/mcp-gateway
+
+# Or use in Claude config
+{
+  "mcpServers": {
+    "mcp-gateway": {
+      "command": "npx",
+      "args": ["-y", "github:yourname/mcp-gateway"]
+    }
+  }
+}
+```
+
+Perfect for forked repos or private modifications!
+
 ### Clone and Build from Source (For Development)
 
 ```bash
@@ -332,7 +350,6 @@ npm run build
 - **Improved HTTP Reconnect**: Automatic reconnection for transient transport failures
 - **Improved Authentication**: Clear error messages guiding users to authenticate when needed
 - **Built-in Help System**: Interactive guidance with `get_help` tool
-- **Auto Migration**: Legacy `.super-mcp` configs are migrated on first run
 - **Portable**: Everything contained within this directory
 
 ## Project Structure
