@@ -1,9 +1,22 @@
 # Changelog
 
-All notable changes to Super MCP Router will be documented in this file.
+All notable changes to MCP Gateway will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [1.4.0] - 2025-01-07
+
+### Added
+- **Direct GitHub execution**: Committed dist/ files for `npx github:sting8k/mcp-gateway`
+- **Config hot reload**: Auto-reloads when config files change (300ms debounce)
+
+### Changed
+- **Renamed**: Super MCP Router → MCP Gateway
+- **Installation**: GitHub as primary method (no npm publish needed)
+- **Documentation**: Streamlined README from 430 to 137 lines
+- **Repository**: Updated URLs to sting8k/mcp-gateway
+
+### Fixed
+- HTTP transport reconnect issues
+- .DS_Store files removed from git tracking
 
 ## [1.3.0] - 2025-01-11
 
