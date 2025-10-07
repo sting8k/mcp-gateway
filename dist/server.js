@@ -1,20 +1,16 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { ERROR_CODES, } from "./types.js";
+import { ERROR_CODES } from "./types.js";
 import { PackageRegistry } from "./registry.js";
 import { Catalog } from "./catalog.js";
 import { getValidator } from "./validator.js";
 import { getLogger } from "./logging.js";
 import { handleGetHelp } from "./help/index.js";
-import { MultiToolParallelInputSchema, MultiToolParallelOutputSchema } from "./schemas/index.js";
+import { GATEWAY_TOOLS } from "./schemas/index.js";
 import { handleListToolPackages, handleListTools, handleUseTool, handleMultiUseTool, handleHealthCheckAll, handleAuthenticate, } from "./handlers/index.js";
-import http from "node:http";
+import { setupStdioTransport, setupHttpTransport, setupSseTransport } from "./transports/index.js";
 import { watch } from "node:fs";
 import path from "node:path";
-import { URL } from "node:url";
 const logger = getLogger();
 function createGatewayServer(context) {
     const server = new Server({
@@ -26,193 +22,7 @@ function createGatewayServer(context) {
         },
     });
     server.setRequestHandler(ListToolsRequestSchema, async () => {
-        return {
-            tools: [
-                {
-                    name: "list_tool_packages",
-                    description: "List available MCP packages and discover their capabilities. Start here to see what tools you have access to. Each package provides a set of related tools (e.g., filesystem operations, API integrations). Returns package IDs needed for list_tools.",
-                    inputSchema: {
-                        type: "object",
-                        properties: {
-                            safe_only: {
-                                type: "boolean",
-                                description: "Only return packages that are considered safe",
-                                default: true,
-                            },
-                            limit: {
-                                type: "number",
-                                description: "Maximum number of packages to return",
-                                default: 100,
-                            },
-                            include_health: {
-                                type: "boolean",
-                                description: "Include health status for each package (shows if package is connected and ready)",
-                                default: true,
-                            },
-                        },
-                        examples: [
-                            { safe_only: true, include_health: true },
-                            { limit: 10 }
-                        ],
-                    },
-                },
-                {
-                    name: "list_tools",
-                    description: "Explore tools within a specific package to understand what actions you can perform. Use the package_id from list_tool_packages. Returns tool names, descriptions, and argument schemas. Essential for discovering available functionality before using use_tool.",
-                    inputSchema: {
-                        type: "object",
-                        properties: {
-                            package_id: {
-                                type: "string",
-                                description: "Package ID from list_tool_packages (e.g., 'filesystem', 'github', 'notion-api')",
-                                examples: ["filesystem", "github", "notion-api", "brave-search"],
-                            },
-                            summarize: {
-                                type: "boolean",
-                                description: "Include summaries and argument skeletons showing expected format",
-                                default: true,
-                            },
-                            include_schemas: {
-                                type: "boolean",
-                                description: "Include full JSON schemas for tool arguments (verbose, usually not needed)",
-                                default: false,
-                            },
-                            page_size: {
-                                type: "number",
-                                description: "Number of tools to return per page",
-                                default: 20,
-                            },
-                            page_token: {
-                                type: ["string", "null"],
-                                description: "Token for pagination (from previous response's next_page_token)",
-                            },
-                        },
-                        required: ["package_id"],
-                        examples: [
-                            { package_id: "filesystem", summarize: true },
-                            { package_id: "github", page_size: 10 }
-                        ],
-                    },
-                },
-                {
-                    name: "use_tool",
-                    description: "Execute a specific tool from a package. First use list_tool_packages to find packages, then list_tools to discover tools and their arguments, then use this to execute. The args must match the tool's schema exactly.",
-                    inputSchema: {
-                        type: "object",
-                        properties: {
-                            package_id: {
-                                type: "string",
-                                description: "Package ID containing the tool (from list_tool_packages)",
-                                examples: ["filesystem", "github"],
-                            },
-                            tool_id: {
-                                type: "string",
-                                description: "Tool name/ID to execute (from list_tools)",
-                                examples: ["read_file", "search_repositories", "create_page"],
-                            },
-                            args: {
-                                type: "object",
-                                description: "Tool-specific arguments matching the schema from list_tools",
-                                examples: [
-                                    { path: "/Users/example/file.txt" },
-                                    { query: "language:python stars:>100" }
-                                ],
-                            },
-                            dry_run: {
-                                type: "boolean",
-                                description: "Validate arguments without executing (useful for testing)",
-                                default: false,
-                            },
-                        },
-                        required: ["package_id", "tool_id", "args"],
-                        examples: [
-                            {
-                                package_id: "filesystem",
-                                tool_id: "read_file",
-                                args: { path: "/tmp/test.txt" }
-                            },
-                            {
-                                package_id: "github",
-                                tool_id: "search_repositories",
-                                args: { query: "mcp tools", limit: 5 },
-                                dry_run: true
-                            }
-                        ],
-                    },
-                },
-                {
-                    name: "multi_use_tool",
-                    description: "Execute multiple tool invocations in parallel and return ordered results and diagnostics.",
-                    inputSchema: MultiToolParallelInputSchema,
-                    outputSchema: MultiToolParallelOutputSchema,
-                },
-                {
-                    name: "get_help",
-                    description: "Get detailed guidance on using MCP Gateway effectively. Provides step-by-step instructions, common workflows, troubleshooting tips, and best practices. Use this when you need clarification on how to accomplish tasks.",
-                    inputSchema: {
-                        type: "object",
-                        properties: {
-                            topic: {
-                                type: "string",
-                                description: "Help topic to explore",
-                                enum: ["getting_started", "workflow", "authentication", "tool_discovery", "error_handling", "common_patterns", "package_types"],
-                                default: "getting_started",
-                            },
-                            package_id: {
-                                type: "string",
-                                description: "Get package-specific help and usage patterns",
-                                examples: ["filesystem", "github", "notion-api"],
-                            },
-                            error_code: {
-                                type: "number",
-                                description: "Get help for a specific error code",
-                                examples: [-32001, -32002, -32003],
-                            },
-                        },
-                        examples: [
-                            { topic: "getting_started" },
-                            { topic: "workflow" },
-                            { package_id: "github" },
-                            { error_code: -32005 }
-                        ],
-                    },
-                },
-                {
-                    name: "health_check_all",
-                    description: "Check connection status and health of all configured packages. Useful for diagnosing issues or verifying which packages are available and authenticated. Shows which packages need authentication.",
-                    inputSchema: {
-                        type: "object",
-                        properties: {
-                            detailed: {
-                                type: "boolean",
-                                description: "Include detailed information for each package",
-                                default: false,
-                            },
-                        },
-                    },
-                },
-                {
-                    name: "authenticate",
-                    description: "Start OAuth authentication for packages that require it (e.g., Notion, Slack). Opens browser for authorization. Use health_check_all first to see which packages need authentication.",
-                    inputSchema: {
-                        type: "object",
-                        properties: {
-                            package_id: {
-                                type: "string",
-                                description: "The package ID to authenticate (must be an OAuth-enabled package)",
-                                examples: ["notion-api", "slack"],
-                            },
-                            wait_for_completion: {
-                                type: "boolean",
-                                description: "Whether to wait for OAuth completion before returning",
-                                default: true,
-                            },
-                        },
-                        required: ["package_id"],
-                    },
-                },
-            ],
-        };
+        return { tools: GATEWAY_TOOLS };
     });
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { name, arguments: args } = request.params;
@@ -294,22 +104,6 @@ export async function startServer(options) {
         port,
     });
     const configWatchers = [];
-    const closeWatchers = () => {
-        while (configWatchers.length > 0) {
-            const watcher = configWatchers.pop();
-            if (!watcher) {
-                continue;
-            }
-            try {
-                watcher.close();
-            }
-            catch (error) {
-                logger.debug("Failed to close configuration watcher", {
-                    error: error instanceof Error ? error.message : String(error),
-                });
-            }
-        }
-    };
     let reloadTimeout = null;
     let reloadInProgress = false;
     let reloadQueued = false;
@@ -420,285 +214,31 @@ export async function startServer(options) {
         }
         if (transport === "stdio") {
             const server = createGatewayServer(context);
-            const stdioTransport = new StdioServerTransport();
-            await server.connect(stdioTransport);
-            logger.info("MCP Gateway started successfully (stdio mode)");
-            const shutdown = async () => {
-                logger.info("Shutting down...");
-                closeWatchers();
-                await context.registry.closeAll();
-                process.exit(0);
-            };
-            process.on("SIGINT", shutdown);
-            process.on("SIGTERM", shutdown);
+            await setupStdioTransport(server, {
+                registry: context.registry,
+                configWatchers,
+            });
             return;
         }
         if (transport === "http") {
-            const streamableTransport = new StreamableHTTPServerTransport({
-                sessionIdGenerator: undefined,
-                enableJsonResponse: true,
-                onsessioninitialized: async (sessionId) => {
-                    logger.debug("Streamable HTTP session initialized", { session_id: sessionId });
-                },
-                onsessionclosed: async (sessionId) => {
-                    logger.debug("Streamable HTTP session closed", { session_id: sessionId });
-                },
-            });
             const server = createGatewayServer(context);
-            await server.connect(streamableTransport);
-            const allowedPaths = new Set(["/", "/mcp", "/mcp/"]);
-            const ensureCompatibleAcceptHeader = (req) => {
-                const rawAccept = req.headers["accept"];
-                const normalize = (value) => {
-                    if (!value) {
-                        return [];
-                    }
-                    if (Array.isArray(value)) {
-                        return value.flatMap((entry) => entry.split(",")).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
-                    }
-                    return value.split(",").map((entry) => entry.trim()).filter((entry) => entry.length > 0);
-                };
-                const tokens = new Set(normalize(rawAccept).map((entry) => entry.toLowerCase()));
-                if (!tokens.has("application/json")) {
-                    tokens.add("application/json");
-                }
-                if (!tokens.has("text/event-stream")) {
-                    tokens.add("text/event-stream");
-                }
-                req.headers["accept"] = Array.from(tokens).join(", ");
-            };
-            const httpServer = http.createServer(async (req, res) => {
-                try {
-                    if (!req.url) {
-                        res.writeHead(404).end();
-                        return;
-                    }
-                    const parsedUrl = new URL(req.url, `http://${req.headers.host ?? `${host}:${port}`}`);
-                    logger.debug("Incoming HTTP request", {
-                        method: req.method,
-                        path: parsedUrl.pathname,
-                        headers: req.headers,
-                    });
-                    if (!allowedPaths.has(parsedUrl.pathname)) {
-                        res.writeHead(404).end();
-                        return;
-                    }
-                    if (req.method === "OPTIONS") {
-                        res.setHeader("Access-Control-Allow-Origin", "*");
-                        res.setHeader("Access-Control-Allow-Headers", "content-type, mcp-session-id, mcp-protocol-version");
-                        res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
-                        res.writeHead(204).end();
-                        return;
-                    }
-                    const chunks = [];
-                    if (req.method === "POST" || req.method === "DELETE") {
-                        await new Promise((resolve, reject) => {
-                            req.on("data", (chunk) => {
-                                chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-                            });
-                            req.on("end", resolve);
-                            req.on("error", reject);
-                        });
-                    }
-                    let parsedBody = undefined;
-                    if (chunks.length > 0) {
-                        try {
-                            const raw = Buffer.concat(chunks).toString("utf-8");
-                            parsedBody = JSON.parse(raw);
-                        }
-                        catch (error) {
-                            logger.debug("Failed to parse request body", {
-                                error: error instanceof Error ? error.message : String(error),
-                            });
-                        }
-                    }
-                    res.setHeader("Access-Control-Allow-Origin", "*");
-                    if (req.method === "POST" || req.method === "DELETE" || req.method === "GET") {
-                        ensureCompatibleAcceptHeader(req);
-                    }
-                    await streamableTransport.handleRequest(req, res, parsedBody);
-                }
-                catch (error) {
-                    logger.error("HTTP server error", {
-                        error: error instanceof Error ? error.message : String(error),
-                    });
-                    if (!res.writableEnded) {
-                        res.writeHead(500).end("Internal Server Error");
-                    }
-                }
-            });
-            httpServer.on("error", (error) => {
-                logger.fatal("Failed to start HTTP server", {
-                    error: error instanceof Error ? error.message : String(error),
-                });
-                process.exit(1);
-            });
-            httpServer.listen(port, host, () => {
-                logger.info("MCP Gateway started successfully (streamable HTTP mode)", {
-                    host,
-                    port,
-                });
-            });
-            const shutdown = async () => {
-                logger.info("Shutting down...");
-                httpServer.close();
-                closeWatchers();
-                await context.registry.closeAll();
-                process.exit(0);
-            };
-            process.on("SIGINT", shutdown);
-            process.on("SIGTERM", shutdown);
-            return;
-        }
-        const sessions = new Map();
-        const cleanupSession = async (sessionId) => {
-            const session = sessions.get(sessionId);
-            if (!session) {
-                return;
-            }
-            sessions.delete(sessionId);
-            try {
-                await session.transport.close();
-            }
-            catch (error) {
-                logger.debug("Error closing transport", {
-                    session_id: sessionId,
-                    error: error instanceof Error ? error.message : String(error),
-                });
-            }
-            try {
-                await session.server.close();
-            }
-            catch (error) {
-                logger.debug("Error closing session server", {
-                    session_id: sessionId,
-                    error: error instanceof Error ? error.message : String(error),
-                });
-            }
-        };
-        const sseServer = http.createServer(async (req, res) => {
-            try {
-                if (!req.url) {
-                    res.writeHead(404).end();
-                    return;
-                }
-                const parsedUrl = new URL(req.url, `http://${req.headers.host ?? `${host}:${port}`}`);
-                if (req.method === "OPTIONS") {
-                    res.setHeader("Access-Control-Allow-Origin", "*");
-                    res.setHeader("Access-Control-Allow-Headers", "content-type");
-                    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-                    res.writeHead(204).end();
-                    return;
-                }
-                const isSseStreamPath = parsedUrl.pathname === "/events" || parsedUrl.pathname === "/sse";
-                if (req.method === "GET" && isSseStreamPath) {
-                    res.setHeader("Access-Control-Allow-Origin", "*");
-                    res.setHeader("Cache-Control", "no-cache, no-transform");
-                    const transportInstance = new SSEServerTransport("/transport", res);
-                    const gatewayServer = createGatewayServer(context);
-                    sessions.set(transportInstance.sessionId, { transport: transportInstance, server: gatewayServer });
-                    transportInstance.onclose = () => {
-                        cleanupSession(transportInstance.sessionId).catch((error) => {
-                            logger.debug("Failed to cleanup session", {
-                                session_id: transportInstance.sessionId,
-                                error: error instanceof Error ? error.message : String(error),
-                            });
-                        });
-                    };
-                    transportInstance.onerror = (error) => {
-                        logger.error("SSE transport error", {
-                            session_id: transportInstance.sessionId,
-                            error: error instanceof Error ? error.message : String(error),
-                        });
-                    };
-                    gatewayServer.onclose = () => {
-                        cleanupSession(transportInstance.sessionId).catch(() => undefined);
-                    };
-                    gatewayServer.onerror = (error) => {
-                        logger.error("Server error", {
-                            session_id: transportInstance.sessionId,
-                            error: error instanceof Error ? error.message : String(error),
-                        });
-                    };
-                    await gatewayServer.connect(transportInstance);
-                    logger.info("SSE session established", {
-                        session_id: transportInstance.sessionId,
-                    });
-                    return;
-                }
-                if (req.method === "POST" && parsedUrl.pathname === "/transport") {
-                    const sessionId = parsedUrl.searchParams.get("sessionId");
-                    if (!sessionId) {
-                        res.writeHead(400).end("Missing sessionId");
-                        return;
-                    }
-                    const session = sessions.get(sessionId);
-                    if (!session) {
-                        res.writeHead(404).end("Unknown session");
-                        return;
-                    }
-                    const chunks = [];
-                    await new Promise((resolve, reject) => {
-                        req.on("data", (chunk) => {
-                            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-                        });
-                        req.on("end", resolve);
-                        req.on("error", reject);
-                    });
-                    let parsedBody = undefined;
-                    if (chunks.length > 0) {
-                        try {
-                            const raw = Buffer.concat(chunks).toString("utf-8");
-                            parsedBody = JSON.parse(raw);
-                        }
-                        catch (error) {
-                            res.writeHead(400).end("Invalid JSON");
-                            logger.debug("Failed to parse POST body", {
-                                session_id: sessionId,
-                                error: error instanceof Error ? error.message : String(error),
-                            });
-                            return;
-                        }
-                    }
-                    res.setHeader("Access-Control-Allow-Origin", "*");
-                    await session.transport.handlePostMessage(req, res, parsedBody);
-                    return;
-                }
-                res.writeHead(404).end();
-            }
-            catch (error) {
-                logger.error("HTTP server error", {
-                    error: error instanceof Error ? error.message : String(error),
-                });
-                if (!res.writableEnded) {
-                    res.writeHead(500).end("Internal Server Error");
-                }
-            }
-        });
-        sseServer.on("error", (error) => {
-            logger.fatal("Failed to start SSE server", {
-                error: error instanceof Error ? error.message : String(error),
-            });
-            process.exit(1);
-        });
-        sseServer.listen(port, host, () => {
-            logger.info("MCP Gateway started successfully (SSE mode)", {
+            await setupHttpTransport(server, {
+                registry: context.registry,
+                configWatchers,
                 host,
                 port,
             });
+            return;
+        }
+        await setupSseTransport({
+            registry: context.registry,
+            catalog: context.catalog,
+            validator: context.validator,
+            configWatchers,
+            host,
+            port,
+            createGatewayServer,
         });
-        const shutdown = async () => {
-            logger.info("Shutting down...");
-            sseServer.close();
-            closeWatchers();
-            await context.registry.closeAll();
-            for (const sessionId of Array.from(sessions.keys())) {
-                await cleanupSession(sessionId);
-            }
-            process.exit(0);
-        };
-        process.on("SIGINT", shutdown);
-        process.on("SIGTERM", shutdown);
         return;
     }
     catch (error) {

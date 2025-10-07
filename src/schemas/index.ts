@@ -3,3 +3,4 @@
  */
 
 export { MultiToolParallelInputSchema, MultiToolParallelOutputSchema } from "./multiTool.js";
+export { GATEWAY_TOOLS } from "./toolDefinitions.js";
