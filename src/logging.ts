@@ -16,6 +16,7 @@ export interface LogEntry {
 export interface LoggerOptions {
   enableFileLogging?: boolean;
   baseDir?: string;
+  isStdioMode?: boolean;
 }
 
 function envEnablesFileLogging(): boolean {
@@ -45,10 +46,12 @@ class Logger {
   private logFile?: string;
   private logStream?: fs.WriteStream;
   private readonly enableFileLogging: boolean;
+  private readonly isStdioMode: boolean;
 
   constructor(level: LogLevel = "info", options?: LoggerOptions) {
     this.level = level;
     const baseDir = options?.baseDir ?? process.env.HOME ?? "";
+    this.isStdioMode = options?.isStdioMode ?? false;
     this.enableFileLogging =
       typeof options?.enableFileLogging === "boolean"
         ? options.enableFileLogging
@@ -75,7 +78,10 @@ class Logger {
         log_file: this.logFile,
       });
 
-      console.error(`📝 Logging to: ${this.logFile}`);
+      // Only log to stderr if not in stdio mode (to avoid breaking MCP protocol)
+      if (!this.isStdioMode) {
+        console.error(`📝 Logging to: ${this.logFile}`);
+      }
     }
 
     this.setupProcessHandlers();
@@ -193,8 +199,12 @@ class Logger {
     // Write to file
     this.writeToFile(entry);
     
-    // Also write to console.error for MCP communication
-    console.error(JSON.stringify(entry));
+    // Write to stderr ONLY if NOT in stdio mode
+    // In stdio mode, stderr must be silent (stdout is used for JSON-RPC)
+    // Exception: Always log fatal errors to stderr
+    if (!this.isStdioMode || level === "fatal") {
+      console.error(JSON.stringify(entry));
+    }
   }
 
   debug(msg: string, data?: Record<string, any>) {

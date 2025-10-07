@@ -182,7 +182,10 @@ async function main() {
         process.exit(1);
     }
     // Initialize logger
-    initLogger(logLevel, { enableFileLogging: logToFile });
+    initLogger(logLevel, {
+        enableFileLogging: logToFile,
+        isStdioMode: transport === "stdio"
+    });
     startServer({ configPaths, logLevel, transport, host, port }).catch(err => {
         console.error(JSON.stringify({ level: "fatal", msg: String(err) }));
         process.exit(1);
