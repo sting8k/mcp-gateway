@@ -6,6 +6,7 @@ Aggregate multiple MCP servers into a single interface for CLI. No installation 
 
 **1. Add to AI Agent CLI**
 
+### Stdio
 Edit your cli config:
 
 ```json
@@ -19,8 +20,14 @@ Edit your cli config:
 }
 ```
 
+### Streamable HTTP
 Or with Streamable HTTP (default port is `3001`):
 
+```bash
+npx -y github:sting8k/mcp-gateway
+```
+
+Then add to cli's mcp config:
 ```json
 {
   "mcpServers": {
