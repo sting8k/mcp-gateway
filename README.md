@@ -1,20 +1,51 @@
 # MCP Gateway
 
-Aggregate multiple MCP servers into a single interface for AI agents. No installation required.
+**Unified MCP router that aggregates multiple MCP servers into a single interface for AI agents.**
 
-**Key features**
-- Unified router for stdio, SSE, and streamable HTTP packages
-- Built-in OAuth flows with secure token storage
-- Auto-generated config with hot reload across multiple files
-- Tool/package discovery, health checks, and validation helpers
-- Structured logging with optional file output for debugging
+## Overview
+
+MCP Gateway lets any compatible client talk to multiple Model Context Protocol servers through one entry point. It supports stdio and streamable HTTP transports, manages OAuth flows, and keeps configuration in sync across files with hot reloading.
+
+```mermaid
+flowchart LR
+  Client["MCP-enabled Client"]
+  Gateway["MCP Gateway"]
+
+  subgraph Local["Local Environment"]
+    Config["Config Files (~/.mcp-gateway)"]
+    Keychain["OS Keychain"]
+  end
+
+  subgraph Servers["MCP Servers"]
+    ServerA["Server A"]
+    ServerB["Server B"]
+  end
+
+  Client --> Gateway
+  Config --> Gateway
+  Keychain --> Gateway
+  Gateway --> ServerA
+  Gateway --> ServerB
+```
+
+## Key Features
+
+- **Transport flexibility** – Connect stdio, SSE, and streamable HTTP packages from one router.
+- **Secure authentication** – Run built-in OAuth flows with token storage handled by the OS keychain.
+- **Config orchestration** – Generate configs automatically, hot-reload changes, and merge multiple files.
+- **Discovery & validation** – Inspect tool and package metadata, run health checks, and validate schemas.
+- **Structured observability** – Use structured logging with optional file output for debugging sessions.
+
+## Privacy & Security
+
+- Tokens and credentials are stored locally via the system keychain.
+- Configuration files may reference environment variables (e.g., `${GITHUB_TOKEN}`) to avoid hardcoding secrets.
+- Never commit personal configs or API keys to source control.
 
 ## Quick Start
 
-**1. Add to AI Agent CLI**
-
-### Stdio
-Edit your cli config:
+### 1. Add to your MCP-enabled CLI (stdio)
+Edit the CLI config to point at MCP Gateway. The CLI will launch the router on demand.
 
 ```json
 {
@@ -27,14 +58,17 @@ Edit your cli config:
 }
 ```
 
-### Streamable HTTP
-Or with Streamable HTTP (default port is `3001`):
+> `--transport stdio` is required for CLI integrations. `--log-to-file` writes protocol-safe logs to `~/.mcp-gateway/logs/`; adjust `--log-level` as needed.
+
+### 2. Optional: streamable HTTP server
+Start MCP Gateway manually if your client prefers HTTP (default port `3001`).
 
 ```bash
 npx -y github:sting8k/mcp-gateway
 ```
 
-Then add to cli's mcp config:
+Then register it with your client:
+
 ```json
 {
   "mcpServers": {
@@ -46,22 +80,19 @@ Then add to cli's mcp config:
 }
 ```
 
-**2. Restart CLI**
+### 3. Restart your CLI
+`~/.mcp-gateway/config.json` is created automatically on first run.
 
-MCP Gateway auto-creates `~/.mcp-gateway/config.json` on first run.
+### 4. Add MCP servers
 
-> `--transport stdio` is required for CLI's MCP integration. `--log-to-file` keeps protocol-safe logs under `~/.mcp-gateway/logs/`; adjust `--log-level` as needed.
-
-**3. Add MCP Servers** (Optional)
-
+## Use cli
 ```bash
 npx mcp-gateway add filesystem
 npx mcp-gateway add github
 ```
+You can also edit `~/.mcp-gateway/config.json` directly.
 
-Or edit `~/.mcp-gateway/config.json` directly.
-
-## Configuration
+## Or edit Configuration file
 
 Example `~/.mcp-gateway/config.json`:
 
@@ -90,71 +121,40 @@ Example `~/.mcp-gateway/config.json`:
 
 ### Config Options
 
-**Stdio servers:**
-- `command`: Command to run
-- `args`: Arguments
-- `env`: Environment variables
-- `cwd`: Working directory
+**Stdio servers**: `command`, `args`, `env`, `cwd`
 
-**HTTP servers:**
-- `type`: `"http"` or `"sse"`
-- `url`: Server URL
-- `oauth`: Enable OAuth (boolean)
-- `headers`: HTTP headers
+**HTTP/SSE servers**: `type` (`"http"` or `"sse"`), `url`, `oauth`, `headers`
 
-**Common:**
-- `disabled`: Disable without removing (boolean)
-- `name`, `description`: Display info
-
-### Environment Variables
-
-Use `${VAR}` in config:
-```json
-"env": {
-  "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
-}
-```
+**Common fields**: `disabled` (boolean), `name`, `description`
 
 ### Multiple Config Files
 
-Use multiple files via `--config` or comma-separated `MCP_GATEWAY_CONFIG`:
+Point MCP Gateway to additional config files via CLI arguments or environment variables:
 
+- **CLI flag**: pass `--config /path/to/one.json --config /path/to/two.json` when launching the router.
+- **Environment**: set `MCP_GATEWAY_CONFIG="~/personal.json,~/work.json"` (comma-separated paths) before starting the CLI.
+
+```bash
+npx -y github:sting8k/mcp-gateway --config ~/personal.json --config ~/work.json
+```
 ```bash
 export MCP_GATEWAY_CONFIG="~/personal.json,~/work.json"
 ```
 
-## Installation Alternatives
+## Feature Spotlight
 
-**From GitHub:**
-```bash
-npx github:sting8k/mcp-gateway
-```
+- Single interface for all MCP transports.
+- OAuth support with token storage.
+- Tool discovery and validation helpers.
+- Config hot reload for rapid iteration.
+- Built-in help via `get_help(topic: "getting_started")`.
 
-**From source:**
-```bash
-git clone https://github.com/sting8k/mcp-gateway.git
-cd mcp-gateway
-npm install && npm run build
-```
-
-## Features
-
-- Single interface for all MCPs (stdio + HTTP)
-- OAuth support with token storage
-- Tool discovery & validation
-- Config hot reload
-- Built-in help: `get_help(topic: "getting_started")`
-
-## Security
-
-⚠️ Never commit config files with API keys. Tokens stored in OS keychain.
-
-## Links
+## Community & Resources
 
 - [MCP Specification](https://modelcontextprotocol.io)
 - [Available MCP Servers](https://github.com/modelcontextprotocol/servers)
 - [Issues & Support](https://github.com/sting8k/mcp-gateway/issues)
 
----
+## License
 
-**License:** MIT
+MIT License.
