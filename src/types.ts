@@ -123,6 +123,40 @@ export interface UseToolOutput {
   };
 }
 
+export interface MultiToolCallRequestItem extends UseToolInput {
+  request_id?: string;
+}
+
+export interface MultiToolCallInput {
+  requests: MultiToolCallRequestItem[];
+  concurrency?: number;
+  timeout_ms?: number;
+}
+
+export interface MultiToolCallSuccess extends UseToolOutput {
+  request_id?: string;
+  status: "ok";
+}
+
+export interface MultiToolCallError {
+  request_id?: string;
+  package_id: string;
+  tool_id: string;
+  status: "error";
+  error: {
+    code: number;
+    message: string;
+    data?: any;
+  };
+  telemetry: UseToolOutput["telemetry"];
+}
+
+export type MultiToolCallResult = MultiToolCallSuccess | MultiToolCallError;
+
+export interface MultiToolCallOutput {
+  results: MultiToolCallResult[];
+}
+
 export interface BeginAuthInput {
   package_id: string;
 }

@@ -13,6 +13,194 @@ import { watch } from "node:fs";
 import path from "node:path";
 import { URL } from "node:url";
 const logger = getLogger();
+const MultiToolParallelInputSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["requests"],
+    properties: {
+        requests: {
+            type: "array",
+            minItems: 1,
+            items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["package_id", "tool_id"],
+                properties: {
+                    request_id: {
+                        type: "string",
+                        description: "Client-supplied identifier to correlate responses",
+                    },
+                    package_id: {
+                        type: "string",
+                        description: "Package ID to execute",
+                    },
+                    tool_id: {
+                        type: "string",
+                        description: "Tool ID within the package",
+                    },
+                    args: {
+                        description: "Tool arguments (defaults to empty object)",
+                        default: {},
+                        oneOf: [
+                            { type: "object" },
+                            { type: "array", items: {} },
+                            { type: "string" },
+                            { type: "number" },
+                            { type: "boolean" },
+                            { type: "null" }
+                        ],
+                    },
+                    dry_run: {
+                        type: "boolean",
+                        description: "Validate arguments without execution",
+                        default: false,
+                    },
+                },
+            },
+        },
+        concurrency: {
+            type: "integer",
+            minimum: 1,
+            description: "Maximum number of requests to execute simultaneously",
+        },
+        timeout_ms: {
+            type: "integer",
+            minimum: 0,
+            description: "Overall timeout for the batch (milliseconds)",
+        },
+    },
+    examples: [
+        {
+            requests: [
+                {
+                    package_id: "filesystem",
+                    tool_id: "fast_read_file",
+                    args: { path: "/tmp/example.txt" },
+                },
+                {
+                    package_id: "filesystem",
+                    tool_id: "fast_list_directory",
+                    args: { path: "/tmp" },
+                },
+            ],
+        },
+    ],
+};
+const MultiToolParallelOutputSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["results"],
+    properties: {
+        results: {
+            type: "array",
+            minItems: 1,
+            items: {
+                oneOf: [
+                    {
+                        type: "object",
+                        additionalProperties: false,
+                        required: ["status", "package_id", "tool_id", "args_used", "result", "telemetry"],
+                        properties: {
+                            status: { const: "ok" },
+                            request_id: { type: "string" },
+                            package_id: { type: "string" },
+                            tool_id: { type: "string" },
+                            args_used: {
+                                oneOf: [
+                                    { type: "object" },
+                                    { type: "array", items: {} },
+                                    { type: "string" },
+                                    { type: "number" },
+                                    { type: "boolean" },
+                                    { type: "null" }
+                                ],
+                            },
+                            result: {
+                                oneOf: [
+                                    { type: "object" },
+                                    { type: "array", items: {} },
+                                    { type: "string" },
+                                    { type: "number" },
+                                    { type: "boolean" },
+                                    { type: "null" }
+                                ],
+                            },
+                            telemetry: {
+                                type: "object",
+                                additionalProperties: false,
+                                required: ["duration_ms", "status"],
+                                properties: {
+                                    duration_ms: { type: "number" },
+                                    status: { enum: ["ok", "error"] },
+                                },
+                            },
+                        },
+                    },
+                    {
+                        type: "object",
+                        additionalProperties: false,
+                        required: ["status", "package_id", "tool_id", "error", "telemetry"],
+                        properties: {
+                            status: { const: "error" },
+                            request_id: { type: "string" },
+                            package_id: { type: "string" },
+                            tool_id: { type: "string" },
+                            error: {
+                                type: "object",
+                                additionalProperties: true,
+                                required: ["code", "message"],
+                                properties: {
+                                    code: { type: "number" },
+                                    message: { type: "string" },
+                                    data: {
+                                        oneOf: [
+                                            { type: "object" },
+                                            { type: "array", items: {} },
+                                            { type: "string" },
+                                            { type: "number" },
+                                            { type: "boolean" },
+                                            { type: "null" }
+                                        ],
+                                    },
+                                },
+                            },
+                            telemetry: {
+                                type: "object",
+                                additionalProperties: false,
+                                required: ["duration_ms", "status"],
+                                properties: {
+                                    duration_ms: { type: "number" },
+                                    status: { enum: ["ok", "error"] },
+                                },
+                            },
+                        },
+                    }
+                ],
+            },
+        },
+    },
+    examples: [
+        {
+            results: [
+                {
+                    status: "ok",
+                    package_id: "filesystem",
+                    tool_id: "fast_read_file",
+                    args_used: { path: "/tmp/example.txt" },
+                    result: { content: "hello" },
+                    telemetry: { duration_ms: 12, status: "ok" },
+                },
+                {
+                    status: "error",
+                    package_id: "filesystem",
+                    tool_id: "fast_list_directory",
+                    error: { code: -32007, message: "Request timed out" },
+                    telemetry: { duration_ms: 1000, status: "error" },
+                },
+            ],
+        },
+    ],
+};
 function createGatewayServer(context) {
     const server = new Server({
         name: "mcp-gateway",
@@ -138,6 +326,12 @@ function createGatewayServer(context) {
                     },
                 },
                 {
+                    name: "multi_use_tool",
+                    description: "Execute multiple tool invocations in parallel and return ordered results and diagnostics.",
+                    inputSchema: MultiToolParallelInputSchema,
+                    outputSchema: MultiToolParallelOutputSchema,
+                },
+                {
                     name: "get_help",
                     description: "Get detailed guidance on using MCP Gateway effectively. Provides step-by-step instructions, common workflows, troubleshooting tips, and best practices. Use this when you need clarification on how to accomplish tasks.",
                     inputSchema: {
@@ -215,6 +409,8 @@ function createGatewayServer(context) {
                     return await handleListTools(args, context.catalog, context.validator);
                 case "use_tool":
                     return await handleUseTool(args, context.registry, context.catalog, context.validator);
+                case "multi_use_tool":
+                    return await handleMultiUseTool(args, context);
                 case "health_check_all":
                     return await handleHealthCheckAll(args, context.registry);
                 case "authenticate":
@@ -987,6 +1183,146 @@ async function handleUseTool(input, registry, catalog, validator) {
             },
         };
     }
+}
+async function handleMultiUseTool(input, context) {
+    const totalRequests = input.requests.length;
+    const results = new Array(totalRequests);
+    const effectiveConcurrency = Math.max(1, Math.min(typeof input.concurrency === "number" && input.concurrency > 0
+        ? input.concurrency
+        : totalRequests, totalRequests));
+    const deadline = typeof input.timeout_ms === "number" ? Date.now() + input.timeout_ms : undefined;
+    let nextIndex = 0;
+    const worker = async () => {
+        while (true) {
+            const currentIndex = nextIndex;
+            nextIndex += 1;
+            if (currentIndex >= totalRequests) {
+                break;
+            }
+            const request = input.requests[currentIndex];
+            if (deadline && Date.now() > deadline) {
+                results[currentIndex] = createMultiToolTimeoutResult(request);
+                continue;
+            }
+            const callStart = Date.now();
+            const useToolInput = {
+                package_id: request.package_id,
+                tool_id: request.tool_id,
+                args: request.args ?? {},
+                dry_run: request.dry_run ?? false,
+            };
+            try {
+                const response = await handleUseTool(useToolInput, context.registry, context.catalog, context.validator);
+                const payload = extractUseToolPayload(response);
+                results[currentIndex] = {
+                    status: "ok",
+                    request_id: request.request_id,
+                    ...payload,
+                };
+            }
+            catch (error) {
+                const duration = Date.now() - callStart;
+                const normalized = normalizeMultiToolError(error);
+                results[currentIndex] = {
+                    status: "error",
+                    request_id: request.request_id,
+                    package_id: request.package_id,
+                    tool_id: request.tool_id,
+                    error: normalized,
+                    telemetry: {
+                        duration_ms: duration,
+                        status: "error",
+                    },
+                };
+            }
+        }
+    };
+    await Promise.all(Array.from({ length: effectiveConcurrency }, () => worker()));
+    for (let i = 0; i < totalRequests; i += 1) {
+        if (!results[i]) {
+            results[i] = createMultiToolTimeoutResult(input.requests[i]);
+        }
+    }
+    const output = { results };
+    return {
+        content: [
+            {
+                type: "text",
+                text: JSON.stringify(output, null, 2),
+            },
+        ],
+        isError: false,
+        structuredContent: output,
+    };
+}
+function extractUseToolPayload(response) {
+    const textEntry = Array.isArray(response?.content)
+        ? response.content.find((item) => typeof item?.text === "string")
+        : undefined;
+    if (!textEntry) {
+        throw {
+            code: ERROR_CODES.INTERNAL_ERROR,
+            message: "Invalid response format returned from use_tool handler",
+        };
+    }
+    try {
+        return JSON.parse(textEntry.text);
+    }
+    catch (error) {
+        throw {
+            code: ERROR_CODES.INTERNAL_ERROR,
+            message: "Failed to parse use_tool handler response payload",
+            data: {
+                error: error instanceof Error ? error.message : String(error),
+            },
+        };
+    }
+}
+function normalizeMultiToolError(error) {
+    if (error instanceof ValidationError) {
+        return {
+            code: error.code,
+            message: error.message,
+            data: { errors: error.errors },
+        };
+    }
+    if (error && typeof error === "object") {
+        const maybeCode = error.code;
+        const maybeMessage = error.message;
+        const maybeData = error.data;
+        if (typeof maybeCode === "number" && typeof maybeMessage === "string") {
+            return maybeData !== undefined
+                ? { code: maybeCode, message: maybeMessage, data: maybeData }
+                : { code: maybeCode, message: maybeMessage };
+        }
+    }
+    if (error instanceof Error) {
+        return {
+            code: ERROR_CODES.DOWNSTREAM_ERROR,
+            message: error.message,
+        };
+    }
+    return {
+        code: ERROR_CODES.INTERNAL_ERROR,
+        message: String(error),
+    };
+}
+function createMultiToolTimeoutResult(request) {
+    return {
+        status: "error",
+        request_id: request.request_id,
+        package_id: request.package_id,
+        tool_id: request.tool_id,
+        error: {
+            code: ERROR_CODES.DOWNSTREAM_ERROR,
+            message: "Batch timeout reached before request execution",
+            data: { reason: "batch_timeout" },
+        },
+        telemetry: {
+            duration_ms: 0,
+            status: "error",
+        },
+    };
 }
 async function handleAuthStatus(input, registry, authManager) {
     const { package_id } = input;
@@ -2102,3 +2438,4 @@ use_tool(
         return `Error generating help for package ${packageId}: ${error instanceof Error ? error.message : String(error)}`;
     }
 }
+export { handleUseTool, handleMultiUseTool, };
