@@ -133,8 +133,9 @@ export async function startServer(options: {
   transport?: TransportMode;
   host?: string;
   port?: number;
+  silent?: boolean;
 }): Promise<void> {
-  const { configPath, configPaths, logLevel = "info", transport = "http", host = "127.0.0.1", port = 3001 } = options;
+  const { configPath, configPaths, logLevel = "info", transport = "http", host = "127.0.0.1", port = 3001, silent = false } = options;
 
   const rawPaths = configPaths || (configPath ? [configPath] : ["mcp-gateway-config.json"]);
   const paths = rawPaths.map((cfgPath) => path.resolve(cfgPath));
@@ -166,7 +167,11 @@ export async function startServer(options: {
       validator,
     };
 
-    await connectConfiguredPackages(context.registry);
+    const connectionResults = await connectConfiguredPackages(context.registry);
+
+    if (silent) {
+      printSilentConnectionSummary(connectionResults);
+    }
 
     const scheduleReload = () => {
       if (reloadTimeout) {
@@ -194,7 +199,11 @@ export async function startServer(options: {
         const newRegistry = await PackageRegistry.fromConfigFiles(paths);
         const newCatalog = new Catalog(newRegistry);
 
-        await connectConfiguredPackages(newRegistry);
+        const reloadResults = await connectConfiguredPackages(newRegistry);
+
+        if (silent) {
+          printSilentConnectionSummary(reloadResults);
+        }
 
         previousRegistry = context.registry;
         const previousCatalog = context.catalog;
@@ -308,12 +317,21 @@ export async function startServer(options: {
   }
 }
 
-async function connectConfiguredPackages(registry: PackageRegistry): Promise<void> {
+interface PackageConnectionResult {
+  packageId: string;
+  packageName?: string;
+  status: "connected" | "failed";
+  health?: string;
+  attempts: number;
+  error?: string;
+}
+
+async function connectConfiguredPackages(registry: PackageRegistry): Promise<PackageConnectionResult[]> {
   const packages = registry.getPackages();
 
   if (packages.length === 0) {
     logger.info("No MCP packages configured - skipping eager connections");
-    return;
+    return [];
   }
 
   logger.info("Connecting configured MCP packages", {
@@ -380,7 +398,13 @@ async function connectConfiguredPackages(registry: PackageRegistry): Promise<voi
             });
           }
 
-          return { status: "connected", health, attempts: attempt };
+          return {
+            packageId: pkg.id,
+            packageName: pkg.name,
+            status: "connected" as const,
+            health,
+            attempts: attempt,
+          };
         } catch (error) {
           lastError = error;
           const fatal = isFatalConnectionError(error);
@@ -412,7 +436,9 @@ async function connectConfiguredPackages(registry: PackageRegistry): Promise<voi
       }
 
       return {
-        status: "failed",
+        packageId: pkg.id,
+        packageName: pkg.name,
+        status: "failed" as const,
         attempts: attempt,
         error: lastError instanceof Error ? lastError.message : String(lastError),
       };
@@ -427,4 +453,23 @@ async function connectConfiguredPackages(registry: PackageRegistry): Promise<voi
     failed,
     total: packages.length,
   });
+
+  return results;
+}
+
+function printSilentConnectionSummary(results: PackageConnectionResult[]): void {
+  const supportsColor = Boolean(process.stdout.isTTY);
+  const greenDot = supportsColor ? "\x1b[32m●\x1b[0m" : ".";
+  const redDot = supportsColor ? "\x1b[31m●\x1b[0m" : "x";
+  for (const result of results) {
+    if (!result) {
+      continue;
+    }
+    const ok =
+      result.status === "connected" &&
+      (!result.health || result.health === "ok");
+    const icon = ok ? greenDot : redDot;
+    const label = result.packageName || result.packageId;
+    console.log(`${icon} ${label}`);
+  }
 }

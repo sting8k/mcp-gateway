@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { McpClient, PackageConfig } from "../types.js";
 import { getLogger } from "../logging.js";
+import { isSilentMode } from "../runtimeOptions.js";
 
 const logger = getLogger();
 
@@ -30,6 +31,7 @@ export class StdioMcpClient implements McpClient {
       args: config.args || [],
       env: config.env,
       cwd: config.cwd,
+      stderr: isSilentMode() ? "pipe" : undefined,
     });
   }
 
@@ -41,6 +43,7 @@ export class StdioMcpClient implements McpClient {
     });
 
     try {
+      const silent = isSilentMode();
       // Create the transport
       // Let the SDK handle environment variable merging with safe defaults
       this.transport = new StdioClientTransport({
@@ -48,7 +51,19 @@ export class StdioMcpClient implements McpClient {
         args: this.config.args || [],
         env: this.config.env,
         cwd: this.config.cwd,
+        stderr: silent ? "pipe" : undefined,
       });
+
+      if (silent) {
+        const stderrStream = this.transport.stderr;
+        if (stderrStream) {
+          stderrStream.on("data", () => {});
+          stderrStream.on("error", () => {});
+          if (typeof (stderrStream as any).resume === "function") {
+            (stderrStream as any).resume();
+          }
+        }
+      }
 
       // Connect the client to the transport
       await this.client.connect(this.transport);

@@ -1,10 +1,18 @@
 #!/usr/bin/env node
 import { startServer } from "./server.js";
 import { initLogger } from "./logging.js";
+import { setSilentMode } from "./runtimeOptions.js";
 import * as fs from "fs";
 import * as path from "path";
 import { homedir } from "os";
 const args = process.argv.slice(2);
+const silent = args.includes("--silent");
+setSilentMode(silent);
+const emitCliMessage = (message) => {
+    if (!silent) {
+        console.error(message);
+    }
+};
 const hasFlag = (flag) => args.includes(flag);
 const envFileLoggingPreference = () => {
     const raw = process.env.MCP_GATEWAY_ENABLE_FILE_LOGS;
@@ -53,7 +61,9 @@ async function ensureSetup(options = {}) {
         const legacyConfig = path.join(legacyDir, 'config.json');
         if (!fs.existsSync(configFile) && fs.existsSync(legacyConfig)) {
             fs.copyFileSync(legacyConfig, configFile);
-            console.error(`📁 Migrated existing config from ${legacyConfig} to ${configFile}`);
+            if (!options.silent) {
+                console.error(`📁 Migrated existing config from ${legacyConfig} to ${configFile}`);
+            }
         }
         // Create empty config if it doesn't exist
         if (!fs.existsSync(configFile)) {
@@ -62,13 +72,17 @@ async function ensureSetup(options = {}) {
                 "mcpServers": {}
             };
             fs.writeFileSync(configFile, JSON.stringify(emptyConfig, null, 2));
-            console.error(`📁 Created config at: ${configFile}`);
-            console.error(`💡 Add MCP servers to the config or use 'npx mcp-gateway add'`);
+            if (!options.silent) {
+                console.error(`📁 Created config at: ${configFile}`);
+                console.error(`💡 Add MCP servers to the config or use 'npx mcp-gateway add'`);
+            }
         }
     }
     catch (error) {
         // Non-fatal, continue anyway
-        console.error(`Warning: Could not create setup: ${error}`);
+        if (!options.silent) {
+            console.error(`Warning: Could not create setup: ${error}`);
+        }
     }
     return configFile;
 }
@@ -102,7 +116,7 @@ const getArg = (name, d) => {
 // Simple CLI for adding MCPs
 async function handleAddCommand() {
     const serverType = args[1];
-    const configFile = await ensureSetup({ enableFileLogging: resolveFileLoggingPreference() });
+    const configFile = await ensureSetup({ enableFileLogging: resolveFileLoggingPreference(), silent });
     // Read existing config
     const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
     config.mcpServers = config.mcpServers || {};
@@ -131,29 +145,29 @@ async function handleAddCommand() {
         }
     };
     if (!serverType || serverType === '--help') {
-        console.error("Usage: npx mcp-gateway add <server-type>");
-        console.error("\nAvailable server types:");
+        emitCliMessage("Usage: npx mcp-gateway add <server-type>");
+        emitCliMessage("\nAvailable server types:");
         Object.keys(templates).forEach(type => {
-            console.error(`  ${type} - ${templates[type].description}`);
+            emitCliMessage(`  ${type} - ${templates[type].description}`);
         });
-        console.error("\nExample: npx mcp-gateway add filesystem");
+        emitCliMessage("\nExample: npx mcp-gateway add filesystem");
         process.exit(0);
     }
     const template = templates[serverType];
     if (!template) {
-        console.error(`❌ Unknown server type: ${serverType}`);
-        console.error(`Available types: ${Object.keys(templates).join(', ')}`);
+        emitCliMessage(`❌ Unknown server type: ${serverType}`);
+        emitCliMessage(`Available types: ${Object.keys(templates).join(', ')}`);
         process.exit(1);
     }
     // Add to config
     config.mcpServers[serverType] = template;
     // Save config
     fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
-    console.error(`✅ Added ${serverType} to config at ${configFile}`);
+    emitCliMessage(`✅ Added ${serverType} to config at ${configFile}`);
     if (template.env) {
-        console.error(`⚠️  Remember to set environment variables:`);
+        emitCliMessage(`⚠️  Remember to set environment variables:`);
         Object.keys(template.env).forEach(key => {
-            console.error(`   export ${template.env[key].replace('${', '').replace('}', '')}=<your-value>`);
+            emitCliMessage(`   export ${template.env[key].replace('${', '').replace('}', '')}=<your-value>`);
         });
     }
     process.exit(0);
@@ -165,12 +179,12 @@ async function main() {
         return handleAddCommand();
     }
     const logToFile = resolveFileLoggingPreference();
-    const configPaths = await getConfigPaths({ enableFileLogging: logToFile });
+    const configPaths = await getConfigPaths({ enableFileLogging: logToFile, silent });
     const logLevel = getArg("log-level", "error");
     const transportArg = getArg("transport", "http") ?? "http";
     const validTransports = new Set(["http", "sse", "stdio"]);
     if (!validTransports.has(transportArg)) {
-        console.error(`Invalid transport: ${transportArg}. Expected one of http, sse, stdio.`);
+        emitCliMessage(`Invalid transport: ${transportArg}. Expected one of http, sse, stdio.`);
         process.exit(1);
     }
     const transport = transportArg;
@@ -178,15 +192,16 @@ async function main() {
     const portArg = getArg("port");
     const port = portArg ? Number(portArg) : 3001;
     if (Number.isNaN(port)) {
-        console.error(`Invalid port: ${portArg}`);
+        emitCliMessage(`Invalid port: ${portArg}`);
         process.exit(1);
     }
     // Initialize logger
     initLogger(logLevel, {
         enableFileLogging: logToFile,
-        isStdioMode: transport === "stdio"
+        isStdioMode: transport === "stdio",
+        silent,
     });
-    startServer({ configPaths, logLevel, transport, host, port }).catch(err => {
+    startServer({ configPaths, logLevel, transport, host, port, silent }).catch(err => {
         console.error(JSON.stringify({ level: "fatal", msg: String(err) }));
         process.exit(1);
     });

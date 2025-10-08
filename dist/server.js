@@ -92,7 +92,7 @@ function createGatewayServer(context) {
     return server;
 }
 export async function startServer(options) {
-    const { configPath, configPaths, logLevel = "info", transport = "http", host = "127.0.0.1", port = 3001 } = options;
+    const { configPath, configPaths, logLevel = "info", transport = "http", host = "127.0.0.1", port = 3001, silent = false } = options;
     const rawPaths = configPaths || (configPath ? [configPath] : ["mcp-gateway-config.json"]);
     const paths = rawPaths.map((cfgPath) => path.resolve(cfgPath));
     logger.setLevel(logLevel);
@@ -116,7 +116,10 @@ export async function startServer(options) {
             catalog,
             validator,
         };
-        await connectConfiguredPackages(context.registry);
+        const connectionResults = await connectConfiguredPackages(context.registry);
+        if (silent) {
+            printSilentConnectionSummary(connectionResults);
+        }
         const scheduleReload = () => {
             if (reloadTimeout) {
                 clearTimeout(reloadTimeout);
@@ -139,7 +142,10 @@ export async function startServer(options) {
                 });
                 const newRegistry = await PackageRegistry.fromConfigFiles(paths);
                 const newCatalog = new Catalog(newRegistry);
-                await connectConfiguredPackages(newRegistry);
+                const reloadResults = await connectConfiguredPackages(newRegistry);
+                if (silent) {
+                    printSilentConnectionSummary(reloadResults);
+                }
                 previousRegistry = context.registry;
                 const previousCatalog = context.catalog;
                 context.registry = newRegistry;
@@ -252,7 +258,7 @@ async function connectConfiguredPackages(registry) {
     const packages = registry.getPackages();
     if (packages.length === 0) {
         logger.info("No MCP packages configured - skipping eager connections");
-        return;
+        return [];
     }
     logger.info("Connecting configured MCP packages", {
         package_count: packages.length,
@@ -306,7 +312,13 @@ async function connectConfiguredPackages(registry) {
                         hint: `Run 'authenticate(package_id: "${pkg.id}")' to connect`,
                     });
                 }
-                return { status: "connected", health, attempts: attempt };
+                return {
+                    packageId: pkg.id,
+                    packageName: pkg.name,
+                    status: "connected",
+                    health,
+                    attempts: attempt,
+                };
             }
             catch (error) {
                 lastError = error;
@@ -333,6 +345,8 @@ async function connectConfiguredPackages(registry) {
             }
         }
         return {
+            packageId: pkg.id,
+            packageName: pkg.name,
             status: "failed",
             attempts: attempt,
             error: lastError instanceof Error ? lastError.message : String(lastError),
@@ -345,4 +359,20 @@ async function connectConfiguredPackages(registry) {
         failed,
         total: packages.length,
     });
+    return results;
+}
+function printSilentConnectionSummary(results) {
+    const supportsColor = Boolean(process.stdout.isTTY);
+    const greenDot = supportsColor ? "\x1b[32m●\x1b[0m" : ".";
+    const redDot = supportsColor ? "\x1b[31m●\x1b[0m" : "x";
+    for (const result of results) {
+        if (!result) {
+            continue;
+        }
+        const ok = result.status === "connected" &&
+            (!result.health || result.health === "ok");
+        const icon = ok ? greenDot : redDot;
+        const label = result.packageName || result.packageId;
+        console.log(`${icon} ${label}`);
+    }
 }

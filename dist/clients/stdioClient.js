@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { getLogger } from "../logging.js";
+import { isSilentMode } from "../runtimeOptions.js";
 const logger = getLogger();
 export class StdioMcpClient {
     client;
@@ -20,6 +21,7 @@ export class StdioMcpClient {
             args: config.args || [],
             env: config.env,
             cwd: config.cwd,
+            stderr: isSilentMode() ? "pipe" : undefined,
         });
     }
     async connect() {
@@ -29,6 +31,7 @@ export class StdioMcpClient {
             args: this.config.args,
         });
         try {
+            const silent = isSilentMode();
             // Create the transport
             // Let the SDK handle environment variable merging with safe defaults
             this.transport = new StdioClientTransport({
@@ -36,7 +39,18 @@ export class StdioMcpClient {
                 args: this.config.args || [],
                 env: this.config.env,
                 cwd: this.config.cwd,
+                stderr: silent ? "pipe" : undefined,
             });
+            if (silent) {
+                const stderrStream = this.transport.stderr;
+                if (stderrStream) {
+                    stderrStream.on("data", () => { });
+                    stderrStream.on("error", () => { });
+                    if (typeof stderrStream.resume === "function") {
+                        stderrStream.resume();
+                    }
+                }
+            }
             // Connect the client to the transport
             await this.client.connect(this.transport);
             logger.info("Successfully connected to stdio MCP", {
