@@ -257,43 +257,86 @@ async function connectConfiguredPackages(registry) {
     logger.info("Connecting configured MCP packages", {
         package_count: packages.length,
     });
+    const MAX_ATTEMPTS = 5;
+    const RETRY_DELAY_MS = 10_000;
+    const delay = (ms) => new Promise((resolve) => {
+        setTimeout(resolve, ms);
+    });
+    const isFatalConnectionError = (error) => {
+        if (!(error instanceof Error)) {
+            return false;
+        }
+        const message = error.message ?? "";
+        return (message.includes("disabled") ||
+            message.includes("not found") ||
+            message.includes("Invalid package") ||
+            message.includes("command is required") ||
+            message.includes("base_url is required"));
+    };
     const results = await Promise.all(packages.map(async (pkg) => {
         const startedAt = Date.now();
-        try {
-            const client = await registry.getClient(pkg.id);
-            let health;
-            if ("healthCheck" in client && typeof client.healthCheck === "function") {
-                try {
-                    health = await client.healthCheck();
+        let attempt = 0;
+        let lastError;
+        while (attempt < MAX_ATTEMPTS) {
+            attempt += 1;
+            try {
+                const client = await registry.getClient(pkg.id);
+                let health;
+                if ("healthCheck" in client && typeof client.healthCheck === "function") {
+                    try {
+                        health = await client.healthCheck();
+                    }
+                    catch (error) {
+                        logger.debug("Health check failed during eager connection", {
+                            package_id: pkg.id,
+                            error: error instanceof Error ? error.message : String(error),
+                        });
+                        health = "error";
+                    }
                 }
-                catch (error) {
-                    logger.debug("Health check failed during eager connection", {
-                        package_id: pkg.id,
-                        error: error instanceof Error ? error.message : String(error),
-                    });
-                    health = "error";
-                }
-            }
-            logger.info("Package connection attempt completed", {
-                package_id: pkg.id,
-                duration_ms: Date.now() - startedAt,
-                health,
-            });
-            if (health === "needs_auth") {
-                logger.warn("Package requires authentication before use", {
+                logger.info("Package connection attempt completed", {
                     package_id: pkg.id,
-                    hint: `Run 'authenticate(package_id: "${pkg.id}")' to connect`,
+                    duration_ms: Date.now() - startedAt,
+                    health,
+                    attempts: attempt,
                 });
+                if (health === "needs_auth") {
+                    logger.warn("Package requires authentication before use", {
+                        package_id: pkg.id,
+                        hint: `Run 'authenticate(package_id: "${pkg.id}")' to connect`,
+                    });
+                }
+                return { status: "connected", health, attempts: attempt };
             }
-            return { status: "connected", health };
+            catch (error) {
+                lastError = error;
+                const fatal = isFatalConnectionError(error);
+                const context = {
+                    package_id: pkg.id,
+                    attempt,
+                    max_attempts: MAX_ATTEMPTS,
+                    error: error instanceof Error ? error.message : String(error),
+                };
+                if (fatal) {
+                    logger.warn("Failed to connect to package during startup", context);
+                    break;
+                }
+                if (attempt >= MAX_ATTEMPTS) {
+                    logger.warn("Failed to connect to package after retries", context);
+                    break;
+                }
+                logger.warn("Package connection attempt failed, retrying", {
+                    ...context,
+                    retry_in_ms: RETRY_DELAY_MS,
+                });
+                await delay(RETRY_DELAY_MS);
+            }
         }
-        catch (error) {
-            logger.warn("Failed to connect to package during startup", {
-                package_id: pkg.id,
-                error: error instanceof Error ? error.message : String(error),
-            });
-            return { status: "failed" };
-        }
+        return {
+            status: "failed",
+            attempts: attempt,
+            error: lastError instanceof Error ? lastError.message : String(lastError),
+        };
     }));
     const connected = results.filter((result) => result.status === "connected").length;
     const failed = results.length - connected;
