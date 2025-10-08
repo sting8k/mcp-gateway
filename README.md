@@ -44,7 +44,8 @@ flowchart TB
   Keychain -.->|secure tokens| Auth
   
   Discovery -.->|list tools| Router
-  Auth -.->|authenticate| Router
+  Router -.->|start OAuth flow| Auth
+  Auth -.->|tokens for downstream| Notion
 
   classDef clientStyle fill:#e1f5ff,stroke:#0288d1,stroke-width:2px,color:#000000
   classDef gatewayStyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000000
