@@ -58,6 +58,15 @@ flowchart TB
   class Config,Keychain storageStyle
 ```
 
+## Project Direction
+
+This fork of Super MCP focuses on dedicated enhancements and modular architecture improvements:
+
+- **Modular server.ts** - Breaking down the monolithic server into focused, testable components
+- **Expanded test coverage** - Comprehensive test suite for reliability and confidence
+- **Tooling & auth flow enhancements** - Faster hot reload, improved authentication patterns, request deduplication
+- **Schema caching optimizations** - Performance improvements for large-scale deployments
+
 ## Key Features
 
 - **Transport flexibility** – Connect stdio, SSE, and streamable HTTP packages from one router.
@@ -66,6 +75,24 @@ flowchart TB
 - **Config orchestration** – Generate configs automatically, hot-reload changes, and merge multiple files.
 - **Discovery & validation** – Inspect tool and package metadata, run health checks, and validate schemas.
 - **Structured observability** – Use structured logging with optional file output for debugging sessions.
+
+## Differentiators vs Super MCP
+
+This fork introduces several focused enhancements while maintaining compatibility with the upstream original project:
+
+### Architecture & Performance
+- **Modular design** - Server components separated for better testability and maintenance
+- **Request deduplication** - Intelligent caching to reduce redundant MCP calls
+- **Schema caching** - Faster tool discovery and validation through persistent schema storage
+- **Enhanced hot reload** - Faster configuration changes with improved file watching
+- **Extended CLI commands** - Additional management and inspection capabilities
+
+### Development Experience
+- **Comprehensive testing** - Expanded test coverage for reliability
+- **Better debugging** - Enhanced logging and diagnostic tools
+- **Modular extensibility** - Easier to add custom transports and handlers
+
+*Note: This fork maintains a focused roadmap for production-ready enhancements.*
 
 ## Privacy & Security
 
@@ -89,7 +116,7 @@ Edit the CLI config to point at MCP Gateway. The CLI will launch the router on d
 }
 ```
 
-> `--transport stdio` is required for CLI integrations. `--log-to-file` writes protocol-safe logs to `~/.mcp-gateway/logs/`; adjust `--log-level` as needed.
+> Use this fork for enhanced features like faster hot reload, improved authentication, and modular architecture. `--transport stdio` is required for CLI integrations. `--log-to-file` writes protocol-safe logs to `~/.mcp-gateway/logs/`; adjust `--log-level` as needed.
 
 ### 2. Optional: streamable HTTP server
 Start MCP Gateway manually if your client prefers HTTP (default port `3001`).
@@ -184,8 +211,6 @@ export MCP_GATEWAY_CONFIG="~/personal.json,~/work.json"
 
 - [MCP Specification](https://modelcontextprotocol.io)
 - [Available MCP Servers](https://github.com/modelcontextprotocol/servers)
-- [Issues & Support](https://github.com/sting8k/mcp-gateway/issues)
-
 ## License
 
 MIT License.
