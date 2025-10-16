@@ -83,12 +83,21 @@ function expandEnvironmentVariables(env?: Record<string, string>, packageId?: st
   return expanded;
 }
 
+interface PackageConnectionStatus {
+  status: "pending" | "connected" | "failed";
+  attempts: number;
+  health?: string;
+  error?: string;
+  lastUpdated: number;
+}
+
 export class PackageRegistry {
   private config: SuperMcpConfig;
   private packages: PackageConfig[];
   private clients: Map<string, McpClient> = new Map();
   private clientPromises: Map<string, Promise<McpClient>> = new Map();
   private authManager: AuthManagerImpl;
+  private connectionStatus: Map<string, PackageConnectionStatus> = new Map();
 
   constructor(config: SuperMcpConfig, authManager: AuthManagerImpl) {
     this.config = config;
@@ -341,6 +350,24 @@ export class PackageRegistry {
     return packages;
   }
 
+  setConnectionStatus(
+    packageId: string,
+    status: Omit<PackageConnectionStatus, "lastUpdated"> & { lastUpdated?: number }
+  ): void {
+    this.connectionStatus.set(packageId, {
+      ...status,
+      lastUpdated: status.lastUpdated ?? Date.now(),
+    });
+  }
+
+  getConnectionStatus(packageId: string): PackageConnectionStatus | undefined {
+    return this.connectionStatus.get(packageId);
+  }
+
+  clearConnectionStatuses(): void {
+    this.connectionStatus.clear();
+  }
+
   getPackage(packageId: string, options: { include_disabled?: boolean } = {}): PackageConfig | undefined {
     const pkg = this.packages.find(pkg => pkg.id === packageId);
     if (!pkg) {
@@ -498,6 +525,21 @@ export class PackageRegistry {
   }
 
   async healthCheck(packageId: string): Promise<"ok" | "error" | "unavailable"> {
+    const status = this.getConnectionStatus(packageId);
+    if (status) {
+      if (status.status === "failed" || status.status === "pending") {
+        return "unavailable";
+      }
+      if (status.status === "connected" && status.health) {
+        if (status.health === "ok" || status.health === "needs_auth") {
+          return status.health === "needs_auth" ? "unavailable" : "ok";
+        }
+        if (status.health === "error") {
+          return "error";
+        }
+      }
+    }
+
     const pkg = this.getPackage(packageId, { include_disabled: true });
     if (pkg?.disabled) {
       return "unavailable";

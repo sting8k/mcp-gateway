@@ -167,11 +167,7 @@ export async function startServer(options: {
       validator,
     };
 
-    const connectionResults = await connectConfiguredPackages(context.registry);
-
-    if (silent) {
-      printSilentConnectionSummary(connectionResults);
-    }
+    startEagerConnections(context.registry, silent);
 
     const scheduleReload = () => {
       if (reloadTimeout) {
@@ -199,11 +195,7 @@ export async function startServer(options: {
         const newRegistry = await PackageRegistry.fromConfigFiles(paths);
         const newCatalog = new Catalog(newRegistry);
 
-        const reloadResults = await connectConfiguredPackages(newRegistry);
-
-        if (silent) {
-          printSilentConnectionSummary(reloadResults);
-        }
+        startEagerConnections(newRegistry, silent);
 
         previousRegistry = context.registry;
         const previousCatalog = context.catalog;
@@ -366,6 +358,11 @@ async function connectConfiguredPackages(registry: PackageRegistry): Promise<Pac
       let attempt = 0;
       let lastError: unknown;
 
+      registry.setConnectionStatus(pkg.id, {
+        status: "pending",
+        attempts: attempt,
+      });
+
       while (attempt < MAX_ATTEMPTS) {
         attempt += 1;
         try {
@@ -389,6 +386,12 @@ async function connectConfiguredPackages(registry: PackageRegistry): Promise<Pac
             duration_ms: Date.now() - startedAt,
             health,
             attempts: attempt,
+          });
+
+          registry.setConnectionStatus(pkg.id, {
+            status: "connected",
+            attempts: attempt,
+            health,
           });
 
           if (health === "needs_auth") {
@@ -416,6 +419,12 @@ async function connectConfiguredPackages(registry: PackageRegistry): Promise<Pac
             error: error instanceof Error ? error.message : String(error),
           };
 
+          registry.setConnectionStatus(pkg.id, {
+            status: "pending",
+            attempts: attempt,
+            error: context.error,
+          });
+
           if (fatal) {
             logger.warn("Failed to connect to package during startup", context);
             break;
@@ -435,12 +444,20 @@ async function connectConfiguredPackages(registry: PackageRegistry): Promise<Pac
         }
       }
 
+      const errorMessage = lastError instanceof Error ? lastError.message : String(lastError);
+
+      registry.setConnectionStatus(pkg.id, {
+        status: "failed",
+        attempts: attempt,
+        error: errorMessage,
+      });
+
       return {
         packageId: pkg.id,
         packageName: pkg.name,
         status: "failed" as const,
         attempts: attempt,
-        error: lastError instanceof Error ? lastError.message : String(lastError),
+        error: errorMessage,
       };
     })
   );
@@ -472,4 +489,19 @@ function printSilentConnectionSummary(results: PackageConnectionResult[]): void 
     const label = result.packageName || result.packageId;
     console.log(`${icon} ${label}`);
   }
+}
+
+function startEagerConnections(registry: PackageRegistry, silent: boolean): void {
+  void (async () => {
+    try {
+      const results = await connectConfiguredPackages(registry);
+      if (silent) {
+        printSilentConnectionSummary(results);
+      }
+    } catch (error) {
+      logger.error("Unexpected error during eager package connections", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  })();
 }

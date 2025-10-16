@@ -82,6 +82,7 @@ export class PackageRegistry {
     clients = new Map();
     clientPromises = new Map();
     authManager;
+    connectionStatus = new Map();
     constructor(config, authManager) {
         this.config = config;
         this.packages = this.normalizeConfig(config);
@@ -295,6 +296,18 @@ export class PackageRegistry {
         }
         return packages;
     }
+    setConnectionStatus(packageId, status) {
+        this.connectionStatus.set(packageId, {
+            ...status,
+            lastUpdated: status.lastUpdated ?? Date.now(),
+        });
+    }
+    getConnectionStatus(packageId) {
+        return this.connectionStatus.get(packageId);
+    }
+    clearConnectionStatuses() {
+        this.connectionStatus.clear();
+    }
     getPackage(packageId, options = {}) {
         const pkg = this.packages.find(pkg => pkg.id === packageId);
         if (!pkg) {
@@ -435,6 +448,20 @@ export class PackageRegistry {
         return this.authManager;
     }
     async healthCheck(packageId) {
+        const status = this.getConnectionStatus(packageId);
+        if (status) {
+            if (status.status === "failed" || status.status === "pending") {
+                return "unavailable";
+            }
+            if (status.status === "connected" && status.health) {
+                if (status.health === "ok" || status.health === "needs_auth") {
+                    return status.health === "needs_auth" ? "unavailable" : "ok";
+                }
+                if (status.health === "error") {
+                    return "error";
+                }
+            }
+        }
         const pkg = this.getPackage(packageId, { include_disabled: true });
         if (pkg?.disabled) {
             return "unavailable";

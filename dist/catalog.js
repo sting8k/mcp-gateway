@@ -16,6 +16,26 @@ export class Catalog {
     }
     async refreshPackage(packageId) {
         logger.debug("Refreshing package catalog", { package_id: packageId });
+        const connectionStatus = this.registry.getConnectionStatus(packageId);
+        if (connectionStatus && connectionStatus.status !== "connected") {
+            this.cache.set(packageId, {
+                packageId,
+                tools: [],
+                lastUpdated: Date.now(),
+                etag: `${connectionStatus.status}-${Date.now().toString(16)}`,
+                status: connectionStatus.status,
+                error: connectionStatus.error,
+                attempts: connectionStatus.attempts,
+                health: connectionStatus.health,
+            });
+            this.updateGlobalEtag();
+            logger.debug("Skipping catalog refresh due to connection state", {
+                package_id: packageId,
+                status: connectionStatus.status,
+                attempts: connectionStatus.attempts,
+            });
+            return;
+        }
         try {
             const client = await this.registry.getClient(packageId);
             const tools = await client.listTools();
@@ -32,6 +52,10 @@ export class Catalog {
                 tools: cachedTools,
                 lastUpdated: Date.now(),
                 etag: packageEtag,
+                status: "connected",
+                error: undefined,
+                attempts: connectionStatus?.attempts,
+                health: connectionStatus?.health,
             });
             this.updateGlobalEtag();
             logger.debug("Package catalog refreshed", {
@@ -60,6 +84,7 @@ export class Catalog {
                     tools: [],
                     lastUpdated: Date.now(),
                     etag: `auth-pending-${Date.now()}`,
+                    status: "auth_required",
                 });
                 return;
             }
@@ -67,7 +92,13 @@ export class Catalog {
         }
     }
     async ensurePackageLoaded(packageId) {
-        if (!this.cache.has(packageId)) {
+        const cached = this.cache.get(packageId);
+        const connectionStatus = this.registry.getConnectionStatus(packageId);
+        if (!cached) {
+            await this.refreshPackage(packageId);
+            return;
+        }
+        if (connectionStatus && connectionStatus.status !== cached.status) {
             await this.refreshPackage(packageId);
         }
     }
@@ -131,8 +162,15 @@ export class Catalog {
             // If no tools loaded (e.g., needs auth), return a descriptive message
             if (tools.length === 0) {
                 const cached = this.cache.get(packageConfig.id);
-                if (cached?.etag?.startsWith('auth-pending')) {
+                if (cached?.status === "auth_required") {
                     return `${packageConfig.transport} MCP package (authentication required)`;
+                }
+                if (cached?.status === "pending") {
+                    return `${packageConfig.transport} MCP package (connection pending)`;
+                }
+                if (cached?.status === "failed") {
+                    const errorDetail = cached.error ? `: ${cached.error.split("\n")[0]}` : "";
+                    return `${packageConfig.transport} MCP package (connection failed${errorDetail})`;
                 }
                 return `${packageConfig.transport} MCP package (no tools available)`;
             }

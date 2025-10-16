@@ -116,10 +116,7 @@ export async function startServer(options) {
             catalog,
             validator,
         };
-        const connectionResults = await connectConfiguredPackages(context.registry);
-        if (silent) {
-            printSilentConnectionSummary(connectionResults);
-        }
+        startEagerConnections(context.registry, silent);
         const scheduleReload = () => {
             if (reloadTimeout) {
                 clearTimeout(reloadTimeout);
@@ -142,10 +139,7 @@ export async function startServer(options) {
                 });
                 const newRegistry = await PackageRegistry.fromConfigFiles(paths);
                 const newCatalog = new Catalog(newRegistry);
-                const reloadResults = await connectConfiguredPackages(newRegistry);
-                if (silent) {
-                    printSilentConnectionSummary(reloadResults);
-                }
+                startEagerConnections(newRegistry, silent);
                 previousRegistry = context.registry;
                 const previousCatalog = context.catalog;
                 context.registry = newRegistry;
@@ -283,6 +277,10 @@ async function connectConfiguredPackages(registry) {
         const startedAt = Date.now();
         let attempt = 0;
         let lastError;
+        registry.setConnectionStatus(pkg.id, {
+            status: "pending",
+            attempts: attempt,
+        });
         while (attempt < MAX_ATTEMPTS) {
             attempt += 1;
             try {
@@ -305,6 +303,11 @@ async function connectConfiguredPackages(registry) {
                     duration_ms: Date.now() - startedAt,
                     health,
                     attempts: attempt,
+                });
+                registry.setConnectionStatus(pkg.id, {
+                    status: "connected",
+                    attempts: attempt,
+                    health,
                 });
                 if (health === "needs_auth") {
                     logger.warn("Package requires authentication before use", {
@@ -329,6 +332,11 @@ async function connectConfiguredPackages(registry) {
                     max_attempts: MAX_ATTEMPTS,
                     error: error instanceof Error ? error.message : String(error),
                 };
+                registry.setConnectionStatus(pkg.id, {
+                    status: "pending",
+                    attempts: attempt,
+                    error: context.error,
+                });
                 if (fatal) {
                     logger.warn("Failed to connect to package during startup", context);
                     break;
@@ -344,12 +352,18 @@ async function connectConfiguredPackages(registry) {
                 await delay(RETRY_DELAY_MS);
             }
         }
+        const errorMessage = lastError instanceof Error ? lastError.message : String(lastError);
+        registry.setConnectionStatus(pkg.id, {
+            status: "failed",
+            attempts: attempt,
+            error: errorMessage,
+        });
         return {
             packageId: pkg.id,
             packageName: pkg.name,
             status: "failed",
             attempts: attempt,
-            error: lastError instanceof Error ? lastError.message : String(lastError),
+            error: errorMessage,
         };
     }));
     const connected = results.filter((result) => result.status === "connected").length;
@@ -375,4 +389,19 @@ function printSilentConnectionSummary(results) {
         const label = result.packageName || result.packageId;
         console.log(`${icon} ${label}`);
     }
+}
+function startEagerConnections(registry, silent) {
+    void (async () => {
+        try {
+            const results = await connectConfiguredPackages(registry);
+            if (silent) {
+                printSilentConnectionSummary(results);
+            }
+        }
+        catch (error) {
+            logger.error("Unexpected error during eager package connections", {
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    })();
 }
