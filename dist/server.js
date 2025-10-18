@@ -251,7 +251,7 @@ export async function startServer(options) {
         throw error;
     }
 }
-async function connectConfiguredPackages(registry) {
+async function connectConfiguredPackages(registry, silent = false) {
     const packages = registry.getPackages();
     if (packages.length === 0) {
         logger.info("No MCP packages configured - skipping eager connections");
@@ -312,6 +312,9 @@ async function connectConfiguredPackages(registry) {
                     attempts: attempt,
                     health,
                 });
+                if (silent) {
+                    updateLiveStatus(pkg.id, "connected", health);
+                }
                 if (health === "needs_auth") {
                     logger.warn("Package requires authentication before use", {
                         package_id: pkg.id,
@@ -361,6 +364,9 @@ async function connectConfiguredPackages(registry) {
             attempts: attempt,
             error: errorMessage,
         });
+        if (silent) {
+            updateLiveStatus(pkg.id, "failed");
+        }
         return {
             packageId: pkg.id,
             packageName: pkg.name,
@@ -378,28 +384,52 @@ async function connectConfiguredPackages(registry) {
     });
     return results;
 }
-function printSilentConnectionSummary(results) {
+let liveStatusTracker = null;
+function initializeLiveStatus(packages) {
     const supportsColor = Boolean(process.stdout.isTTY);
-    const greenDot = supportsColor ? "\x1b[32m●\x1b[0m" : ".";
-    const redDot = supportsColor ? "\x1b[31m●\x1b[0m" : "x";
-    for (const result of results) {
-        if (!result) {
-            continue;
-        }
-        const ok = result.status === "connected" &&
-            (!result.health || result.health === "ok");
-        const icon = ok ? greenDot : redDot;
-        const label = result.packageName || result.packageId;
-        console.log(`${icon} ${label}`);
+    const grayDot = supportsColor ? "\x1b[90m○\x1b[0m" : "o";
+    liveStatusTracker = {
+        packages: packages.map(p => ({ id: p.id, name: p.name })),
+        lineCount: packages.length,
+        supportsANSI: supportsColor && Boolean(process.stdout.isTTY),
+    };
+    for (const pkg of packages) {
+        console.log(`${grayDot} ${pkg.name}`);
     }
 }
+function updateLiveStatus(packageId, status, health) {
+    if (!liveStatusTracker || !liveStatusTracker.supportsANSI) {
+        return;
+    }
+    const pkgIndex = liveStatusTracker.packages.findIndex(p => p.id === packageId);
+    if (pkgIndex === -1) {
+        return;
+    }
+    const supportsColor = liveStatusTracker.supportsANSI;
+    const greenDot = supportsColor ? "\x1b[32m●\x1b[0m" : ".";
+    const grayDot = supportsColor ? "\x1b[90m○\x1b[0m" : "o";
+    const ok = status === "connected" && (!health || health === "ok");
+    const icon = ok ? greenDot : grayDot;
+    const label = liveStatusTracker.packages[pkgIndex].name;
+    const linesToMoveUp = liveStatusTracker.lineCount - pkgIndex;
+    process.stdout.write(`\x1b[${linesToMoveUp}A`);
+    process.stdout.write(`\r\x1b[K${icon} ${label}\n`);
+    process.stdout.write(`\x1b[${linesToMoveUp - 1}B`);
+}
 function startEagerConnections(registry, silent) {
+    const packages = registry.getPackages();
+    if (silent && packages.length > 0) {
+        initializeLiveStatus(packages);
+    }
     void (async () => {
         try {
-            const results = await connectConfiguredPackages(registry);
+            await connectConfiguredPackages(registry, silent);
+            await new Promise(resolve => setTimeout(resolve, 5000));
             if (silent) {
-                printSilentConnectionSummary(results);
+                registry.setStatusChangeCallback(updateLiveStatus);
             }
+            registry.startBackgroundReconnect();
+            registry.startHealthMonitoring();
         }
         catch (error) {
             logger.error("Unexpected error during eager package connections", {
