@@ -386,15 +386,15 @@ async function connectConfiguredPackages(registry, silent = false) {
 }
 let liveStatusTracker = null;
 function initializeLiveStatus(packages) {
-    const supportsColor = Boolean(process.stdout.isTTY);
+    const supportsColor = Boolean(process.stderr.isTTY);
     const grayDot = supportsColor ? "\x1b[90m○\x1b[0m" : "o";
     liveStatusTracker = {
         packages: packages.map(p => ({ id: p.id, name: p.name })),
         lineCount: packages.length,
-        supportsANSI: supportsColor && Boolean(process.stdout.isTTY),
+        supportsANSI: supportsColor && Boolean(process.stderr.isTTY),
     };
     for (const pkg of packages) {
-        console.log(`${grayDot} ${pkg.name}`);
+        console.error(`${grayDot} ${pkg.name}`);
     }
 }
 function updateLiveStatus(packageId, status, health) {
@@ -412,9 +412,9 @@ function updateLiveStatus(packageId, status, health) {
     const icon = ok ? greenDot : grayDot;
     const label = liveStatusTracker.packages[pkgIndex].name;
     const linesToMoveUp = liveStatusTracker.lineCount - pkgIndex;
-    process.stdout.write(`\x1b[${linesToMoveUp}A`);
-    process.stdout.write(`\r\x1b[K${icon} ${label}\n`);
-    process.stdout.write(`\x1b[${linesToMoveUp - 1}B`);
+    process.stderr.write(`\x1b[${linesToMoveUp}A`);
+    process.stderr.write(`\r\x1b[K${icon} ${label}\n`);
+    process.stderr.write(`\x1b[${linesToMoveUp - 1}B`);
 }
 function startEagerConnections(registry, silent) {
     const packages = registry.getPackages();
