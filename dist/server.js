@@ -10,6 +10,7 @@ import { GATEWAY_TOOLS } from "./schemas/index.js";
 import { handleListToolPackages, handleListTools, handleUseTool, handleMultiUseTool, handleHealthCheckAll, handleAuthenticate, } from "./handlers/index.js";
 import { setupStdioTransport, setupHttpTransport, setupSseTransport } from "./transports/index.js";
 import { watch } from "node:fs";
+import { isSilentMode, isVerboseMode } from "./runtimeOptions.js";
 import path from "node:path";
 const logger = getLogger();
 function createGatewayServer(context) {
@@ -92,7 +93,9 @@ function createGatewayServer(context) {
     return server;
 }
 export async function startServer(options) {
-    const { configPath, configPaths, logLevel = "info", transport = "http", host = "127.0.0.1", port = 3001, silent = false } = options;
+    const globalSilent = isSilentMode();
+    const verbose = isVerboseMode();
+    const { configPath, configPaths, logLevel = verbose ? "debug" : "info", transport = "http", host = "127.0.0.1", port = 3001, silent = globalSilent } = options;
     const rawPaths = configPaths || (configPath ? [configPath] : ["mcp-gateway-config.json"]);
     const paths = rawPaths.map((cfgPath) => path.resolve(cfgPath));
     logger.setLevel(logLevel);

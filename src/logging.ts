@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { isSilentMode, isVerboseMode } from "./runtimeOptions.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error" | "fatal";
 
@@ -18,6 +19,7 @@ export interface LoggerOptions {
   baseDir?: string;
   isStdioMode?: boolean;
   silent?: boolean;
+  verbose?: boolean;
 }
 
 function envEnablesFileLogging(): boolean {
@@ -49,12 +51,16 @@ class Logger {
   private readonly enableFileLogging: boolean;
   private readonly isStdioMode: boolean;
   private readonly silent: boolean;
+  private readonly verbose: boolean;
 
   constructor(level: LogLevel = "error", options?: LoggerOptions) {
     this.level = level;
     const baseDir = options?.baseDir ?? process.env.HOME ?? "";
     this.isStdioMode = options?.isStdioMode ?? false;
-    this.silent = options?.silent ?? false;
+    const globalSilent = isSilentMode();
+    const globalVerbose = isVerboseMode();
+    this.silent = options?.silent ?? globalSilent;
+    this.verbose = options?.verbose ?? globalVerbose;
     this.enableFileLogging =
       typeof options?.enableFileLogging === "boolean"
         ? options.enableFileLogging
@@ -205,7 +211,9 @@ class Logger {
     // Write to stderr ONLY if NOT in stdio mode
     // In stdio mode, stderr must be silent (stdout is used for JSON-RPC)
     // Exception: Always log fatal errors to stderr
-    if (!this.silent && (!this.isStdioMode || level === "fatal")) {
+    const suppressConsole = this.silent && level !== "error" && level !== "fatal";
+    const verboseInfo = this.verbose || level === "error" || level === "fatal";
+    if (!suppressConsole && verboseInfo && (!this.isStdioMode || level === "fatal")) {
       console.error(JSON.stringify(entry));
     }
   }

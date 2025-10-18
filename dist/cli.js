@@ -1,19 +1,22 @@
 #!/usr/bin/env node
 import { startServer } from "./server.js";
 import { initLogger } from "./logging.js";
-import { setSilentMode } from "./runtimeOptions.js";
+import { setSilentMode, setVerboseMode } from "./runtimeOptions.js";
 import * as fs from "fs";
 import * as path from "path";
 import { homedir } from "os";
 const args = process.argv.slice(2);
-const silent = args.includes("--silent");
+const hasFlag = (flag) => args.includes(flag);
+const verbose = hasFlag("--verbose") || hasFlag("--debug");
+const silentFlag = hasFlag("--silent");
+const silent = silentFlag && !verbose;
+setVerboseMode(verbose);
 setSilentMode(silent);
 const emitCliMessage = (message) => {
-    if (!silent) {
+    if (!silent || verbose) {
         console.error(message);
     }
 };
-const hasFlag = (flag) => args.includes(flag);
 const envFileLoggingPreference = () => {
     const raw = process.env.MCP_GATEWAY_ENABLE_FILE_LOGS;
     if (!raw) {
@@ -62,7 +65,7 @@ async function ensureSetup(options = {}) {
         if (!fs.existsSync(configFile) && fs.existsSync(legacyConfig)) {
             fs.copyFileSync(legacyConfig, configFile);
             if (!options.silent) {
-                console.error(`📁 Migrated existing config from ${legacyConfig} to ${configFile}`);
+                emitCliMessage(`📁 Migrated existing config from ${legacyConfig} to ${configFile}`);
             }
         }
         // Create empty config if it doesn't exist
@@ -73,15 +76,15 @@ async function ensureSetup(options = {}) {
             };
             fs.writeFileSync(configFile, JSON.stringify(emptyConfig, null, 2));
             if (!options.silent) {
-                console.error(`📁 Created config at: ${configFile}`);
-                console.error(`💡 Add MCP servers to the config or use 'npx mcp-gateway add'`);
+                emitCliMessage(`📁 Created config at: ${configFile}`);
+                emitCliMessage(`💡 Add MCP servers to the config or use 'npx mcp-gateway add'`);
             }
         }
     }
     catch (error) {
         // Non-fatal, continue anyway
         if (!options.silent) {
-            console.error(`Warning: Could not create setup: ${error}`);
+            emitCliMessage(`Warning: Could not create setup: ${error}`);
         }
     }
     return configFile;
@@ -180,7 +183,8 @@ async function main() {
     }
     const logToFile = resolveFileLoggingPreference();
     const configPaths = await getConfigPaths({ enableFileLogging: logToFile, silent });
-    const logLevel = getArg("log-level", "error");
+    const logLevelArg = getArg("log-level");
+    const logLevel = logLevelArg ?? (verbose ? "debug" : "error");
     const transportArg = getArg("transport", "http") ?? "http";
     const validTransports = new Set(["http", "sse", "stdio"]);
     if (!validTransports.has(transportArg)) {
@@ -200,6 +204,7 @@ async function main() {
         enableFileLogging: logToFile,
         isStdioMode: transport === "stdio",
         silent,
+        verbose,
     });
     startServer({ configPaths, logLevel, transport, host, port, silent }).catch(err => {
         console.error(JSON.stringify({ level: "fatal", msg: String(err) }));

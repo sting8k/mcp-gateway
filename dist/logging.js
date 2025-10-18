@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { isSilentMode, isVerboseMode } from "./runtimeOptions.js";
 function envEnablesFileLogging() {
     const raw = process.env.MCP_GATEWAY_ENABLE_FILE_LOGS;
     if (!raw) {
@@ -28,11 +29,15 @@ class Logger {
     enableFileLogging;
     isStdioMode;
     silent;
+    verbose;
     constructor(level = "error", options) {
         this.level = level;
         const baseDir = options?.baseDir ?? process.env.HOME ?? "";
         this.isStdioMode = options?.isStdioMode ?? false;
-        this.silent = options?.silent ?? false;
+        const globalSilent = isSilentMode();
+        const globalVerbose = isVerboseMode();
+        this.silent = options?.silent ?? globalSilent;
+        this.verbose = options?.verbose ?? globalVerbose;
         this.enableFileLogging =
             typeof options?.enableFileLogging === "boolean"
                 ? options.enableFileLogging
@@ -164,7 +169,9 @@ class Logger {
         // Write to stderr ONLY if NOT in stdio mode
         // In stdio mode, stderr must be silent (stdout is used for JSON-RPC)
         // Exception: Always log fatal errors to stderr
-        if (!this.silent && (!this.isStdioMode || level === "fatal")) {
+        const suppressConsole = this.silent && level !== "error" && level !== "fatal";
+        const verboseInfo = this.verbose || level === "error" || level === "fatal";
+        if (!suppressConsole && verboseInfo && (!this.isStdioMode || level === "fatal")) {
             console.error(JSON.stringify(entry));
         }
     }
