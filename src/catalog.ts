@@ -18,7 +18,7 @@ interface PackageToolCache {
   tools: CachedTool[];
   lastUpdated: number;
   etag: string;
-  status?: "connected" | "pending" | "failed" | "auth_required";
+  status?: "connected" | "pending" | "failed" | "auth_required" | "reconnecting";
   error?: string;
   attempts?: number;
   health?: string;

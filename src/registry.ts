@@ -84,7 +84,7 @@ function expandEnvironmentVariables(env?: Record<string, string>, packageId?: st
 }
 
 interface PackageConnectionStatus {
-  status: "pending" | "connected" | "failed";
+  status: "pending" | "connected" | "failed" | "reconnecting";
   attempts: number;
   health?: string;
   error?: string;
@@ -98,6 +98,9 @@ export class PackageRegistry {
   private clientPromises: Map<string, Promise<McpClient>> = new Map();
   private authManager: AuthManagerImpl;
   private connectionStatus: Map<string, PackageConnectionStatus> = new Map();
+  private reconnectWorker?: NodeJS.Timeout;
+  private healthMonitor?: NodeJS.Timeout;
+  private statusChangeCallback?: (packageId: string, status: "connected" | "failed", health?: string) => void;
 
   constructor(config: SuperMcpConfig, authManager: AuthManagerImpl) {
     this.config = config;
@@ -388,15 +391,49 @@ export class PackageRegistry {
     // Check if we already have a connected client
     let client = this.clients.get(packageId);
     if (client) {
-      // For HTTP clients, check if they're actually connected
+      // Lazy detection: Check if client is still healthy
       if (client.healthCheck) {
-        const health = await client.healthCheck();
-        if (health === "ok") {
-          return client;
+        try {
+          const health = await client.healthCheck();
+          if (health === "ok" || health === "needs_auth") {
+            return client;
+          }
+          // Client exists but not healthy, mark as failed and remove it
+          logger.debug("Client health check failed during request, reconnecting", {
+            package_id: packageId,
+            health,
+          });
+          this.setConnectionStatus(packageId, {
+            status: "failed",
+            attempts: 0,
+            error: `Health check returned: ${health}`,
+          });
+          this.clients.delete(packageId);
+          
+          if (this.statusChangeCallback) {
+            this.statusChangeCallback(packageId, "failed");
+          }
+          
+          client = undefined;
+        } catch (error) {
+          // Health check threw error, client likely disconnected
+          logger.debug("Client health check threw error during request, reconnecting", {
+            package_id: packageId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          this.setConnectionStatus(packageId, {
+            status: "failed",
+            attempts: 0,
+            error: error instanceof Error ? error.message : "Health check error",
+          });
+          this.clients.delete(packageId);
+          
+          if (this.statusChangeCallback) {
+            this.statusChangeCallback(packageId, "failed");
+          }
+          
+          client = undefined;
         }
-        // Client exists but not healthy, remove it
-        this.clients.delete(packageId);
-        client = undefined;
       } else {
         return client;
       }
@@ -502,6 +539,8 @@ export class PackageRegistry {
   }
 
   async closeAll(): Promise<void> {
+    this.stopBackgroundReconnect();
+
     logger.info("Closing all clients", {
       client_count: this.clients.size,
     });
@@ -527,7 +566,7 @@ export class PackageRegistry {
   async healthCheck(packageId: string): Promise<"ok" | "error" | "unavailable"> {
     const status = this.getConnectionStatus(packageId);
     if (status) {
-      if (status.status === "failed" || status.status === "pending") {
+      if (status.status === "failed" || status.status === "pending" || status.status === "reconnecting") {
         return "unavailable";
       }
       if (status.status === "connected" && status.health) {
@@ -633,5 +672,134 @@ export class PackageRegistry {
     } else {
       throw new Error("Client doesn't support authentication");
     }
+  }
+
+  setStatusChangeCallback(callback: (packageId: string, status: "connected" | "failed", health?: string) => void): void {
+    this.statusChangeCallback = callback;
+  }
+
+  startBackgroundReconnect(): void {
+    if (this.reconnectWorker) {
+      return;
+    }
+
+    this.reconnectWorker = setInterval(async () => {
+      for (const [packageId, status] of this.connectionStatus) {
+        if (status.status === "failed" || status.status === "reconnecting") {
+          this.setConnectionStatus(packageId, {
+            status: "reconnecting",
+            attempts: status.attempts,
+          });
+
+          try {
+            this.clients.delete(packageId);
+            this.clientPromises.delete(packageId);
+
+            const client = await this.getClient(packageId);
+            let health: string | undefined;
+
+            if ("healthCheck" in client && typeof client.healthCheck === "function") {
+              try {
+                health = await client.healthCheck();
+              } catch {
+                health = "error";
+              }
+            }
+
+            this.setConnectionStatus(packageId, {
+              status: "connected",
+              attempts: 0,
+              health,
+            });
+
+            if (this.statusChangeCallback) {
+              this.statusChangeCallback(packageId, "connected", health);
+            }
+
+            logger.debug("Package reconnected successfully", {
+              package_id: packageId,
+              health,
+            });
+          } catch {
+            this.setConnectionStatus(packageId, {
+              status: "failed",
+              attempts: status.attempts + 1,
+            });
+          }
+        }
+      }
+    }, 10000);
+  }
+
+  stopBackgroundReconnect(): void {
+    if (this.reconnectWorker) {
+      clearInterval(this.reconnectWorker);
+      this.reconnectWorker = undefined;
+    }
+    if (this.healthMonitor) {
+      clearInterval(this.healthMonitor);
+      this.healthMonitor = undefined;
+    }
+  }
+
+  startHealthMonitoring(): void {
+    if (this.healthMonitor) {
+      return;
+    }
+
+    this.healthMonitor = setInterval(async () => {
+      for (const [packageId, status] of this.connectionStatus) {
+        if (status.status === "connected") {
+          try {
+            const client = this.clients.get(packageId);
+            if (!client) {
+              this.setConnectionStatus(packageId, {
+                status: "failed",
+                attempts: 0,
+                error: "Client lost",
+              });
+              continue;
+            }
+
+            if ("healthCheck" in client && typeof client.healthCheck === "function") {
+              const health = await client.healthCheck();
+              if (health !== "ok" && health !== "needs_auth") {
+                this.setConnectionStatus(packageId, {
+                  status: "failed",
+                  attempts: 0,
+                  error: "Health check failed",
+                });
+                this.clients.delete(packageId);
+                
+                if (this.statusChangeCallback) {
+                  this.statusChangeCallback(packageId, "failed");
+                }
+                
+                logger.debug("Package health check failed, marked for reconnection", {
+                  package_id: packageId,
+                  health,
+                });
+              }
+            }
+          } catch (error) {
+            this.setConnectionStatus(packageId, {
+              status: "failed",
+              attempts: 0,
+              error: error instanceof Error ? error.message : "Health check error",
+            });
+            this.clients.delete(packageId);
+            
+            if (this.statusChangeCallback) {
+              this.statusChangeCallback(packageId, "failed");
+            }
+            
+            logger.debug("Package health check threw error, marked for reconnection", {
+              package_id: packageId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      }
+    }, 20000);
   }
 }

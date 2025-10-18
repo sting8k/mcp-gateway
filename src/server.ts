@@ -1,6 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { ERROR_CODES } from "./types.js";
+import { ERROR_CODES, PackageConfig } from "./types.js";
 import { PackageRegistry } from "./registry.js";
 import { Catalog } from "./catalog.js";
 import { getValidator } from "./validator.js";
@@ -321,7 +321,7 @@ interface PackageConnectionResult {
   error?: string;
 }
 
-async function connectConfiguredPackages(registry: PackageRegistry): Promise<PackageConnectionResult[]> {
+async function connectConfiguredPackages(registry: PackageRegistry, silent: boolean = false): Promise<PackageConnectionResult[]> {
   const packages = registry.getPackages();
 
   if (packages.length === 0) {
@@ -397,6 +397,10 @@ async function connectConfiguredPackages(registry: PackageRegistry): Promise<Pac
             health,
           });
 
+          if (silent) {
+            updateLiveStatus(pkg.id, "connected", health);
+          }
+
           if (health === "needs_auth") {
             logger.warn("Package requires authentication before use", {
               package_id: pkg.id,
@@ -455,6 +459,10 @@ async function connectConfiguredPackages(registry: PackageRegistry): Promise<Pac
         error: errorMessage,
       });
 
+      if (silent) {
+        updateLiveStatus(pkg.id, "failed");
+      }
+
       return {
         packageId: pkg.id,
         packageName: pkg.name,
@@ -477,30 +485,71 @@ async function connectConfiguredPackages(registry: PackageRegistry): Promise<Pac
   return results;
 }
 
-function printSilentConnectionSummary(results: PackageConnectionResult[]): void {
+interface LiveStatusTracker {
+  packages: Array<{ id: string; name: string }>;
+  lineCount: number;
+  supportsANSI: boolean;
+}
+
+let liveStatusTracker: LiveStatusTracker | null = null;
+
+function initializeLiveStatus(packages: PackageConfig[]): void {
   const supportsColor = Boolean(process.stdout.isTTY);
-  const greenDot = supportsColor ? "\x1b[32m●\x1b[0m" : ".";
-  const redDot = supportsColor ? "\x1b[31m●\x1b[0m" : "x";
-  for (const result of results) {
-    if (!result) {
-      continue;
-    }
-    const ok =
-      result.status === "connected" &&
-      (!result.health || result.health === "ok");
-    const icon = ok ? greenDot : redDot;
-    const label = result.packageName || result.packageId;
-    console.log(`${icon} ${label}`);
+  const grayDot = supportsColor ? "\x1b[90m○\x1b[0m" : "o";
+  
+  liveStatusTracker = {
+    packages: packages.map(p => ({ id: p.id, name: p.name })),
+    lineCount: packages.length,
+    supportsANSI: supportsColor && Boolean(process.stdout.isTTY),
+  };
+  
+  for (const pkg of packages) {
+    console.log(`${grayDot} ${pkg.name}`);
   }
 }
 
+function updateLiveStatus(packageId: string, status: "connected" | "failed", health?: string): void {
+  if (!liveStatusTracker || !liveStatusTracker.supportsANSI) {
+    return;
+  }
+  
+  const pkgIndex = liveStatusTracker.packages.findIndex(p => p.id === packageId);
+  if (pkgIndex === -1) {
+    return;
+  }
+  
+  const supportsColor = liveStatusTracker.supportsANSI;
+  const greenDot = supportsColor ? "\x1b[32m●\x1b[0m" : ".";
+  const grayDot = supportsColor ? "\x1b[90m○\x1b[0m" : "o";
+  
+  const ok = status === "connected" && (!health || health === "ok");
+  const icon = ok ? greenDot : grayDot;
+  const label = liveStatusTracker.packages[pkgIndex].name;
+  
+  const linesToMoveUp = liveStatusTracker.lineCount - pkgIndex;
+  process.stdout.write(`\x1b[${linesToMoveUp}A`);
+  process.stdout.write(`\r\x1b[K${icon} ${label}\n`);
+  process.stdout.write(`\x1b[${linesToMoveUp - 1}B`);
+}
+
 function startEagerConnections(registry: PackageRegistry, silent: boolean): void {
+  const packages = registry.getPackages();
+  
+  if (silent && packages.length > 0) {
+    initializeLiveStatus(packages);
+  }
+
   void (async () => {
     try {
-      const results = await connectConfiguredPackages(registry);
+      await connectConfiguredPackages(registry, silent);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
       if (silent) {
-        printSilentConnectionSummary(results);
+        registry.setStatusChangeCallback(updateLiveStatus);
       }
+      
+      registry.startBackgroundReconnect();
+      registry.startHealthMonitoring();
     } catch (error) {
       logger.error("Unexpected error during eager package connections", {
         error: error instanceof Error ? error.message : String(error),
