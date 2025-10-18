@@ -124,6 +124,15 @@ class Logger {
     setLevel(level) {
         this.level = level;
     }
+    updateOptions(options) {
+        if (!options)
+            return;
+        const globalSilent = isSilentMode();
+        const globalVerbose = isVerboseMode();
+        // Cast to any to bypass readonly
+        this.silent = options.silent ?? globalSilent;
+        this.verbose = options.verbose ?? globalVerbose;
+    }
     shouldLog(level) {
         return this.levelPriority[level] >= this.levelPriority[this.level];
     }
@@ -168,11 +177,27 @@ class Logger {
         this.writeToFile(entry);
         // Write to stderr ONLY if NOT in stdio mode
         // In stdio mode, stderr must be silent (stdout is used for JSON-RPC)
-        // Exception: Always log fatal errors to stderr
-        const suppressConsole = this.silent && level !== "error" && level !== "fatal";
-        const verboseInfo = this.verbose || level === "error" || level === "fatal";
-        if (!suppressConsole && verboseInfo && (!this.isStdioMode || level === "fatal")) {
+        // Silent mode: only fatal goes to console
+        // Verbose mode: all logs go to console
+        // Default: error and fatal go to console
+        if (this.isStdioMode && level !== "fatal") {
+            return; // stdio mode: only fatal to stderr
+        }
+        if (this.silent && !this.verbose) {
+            // Silent mode: only fatal
+            if (level === "fatal") {
+                console.error(JSON.stringify(entry));
+            }
+        }
+        else if (this.verbose) {
+            // Verbose mode: everything
             console.error(JSON.stringify(entry));
+        }
+        else {
+            // Default: error and fatal
+            if (level === "error" || level === "fatal") {
+                console.error(JSON.stringify(entry));
+            }
         }
     }
     debug(msg, data) {
@@ -195,7 +220,14 @@ let logger;
 let loggerOptions;
 export function initLogger(level = "error", options) {
     loggerOptions = options;
-    logger = new Logger(level, options);
+    if (logger) {
+        // Update existing logger instance instead of creating new one
+        logger.setLevel(level);
+        logger.updateOptions(options);
+    }
+    else {
+        logger = new Logger(level, options);
+    }
     return logger;
 }
 export function getLogger() {
